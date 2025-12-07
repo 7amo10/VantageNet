@@ -84,8 +84,8 @@ start_service() {
         pip install -q -r requirements.txt 2>/dev/null || true
     fi
     
-    # Start the service in background
-    uvicorn app.main:app --host 0.0.0.0 --port $port --reload &
+    # Start the service in background using python -m
+    python -m app.main > "/tmp/vantage_${service_name}.log" 2>&1 &
     echo $! > "/tmp/vantage_${service_name}.pid"
     echo -e "${GREEN}✓ $service_name started (PID: $!)${NC}"
 }
