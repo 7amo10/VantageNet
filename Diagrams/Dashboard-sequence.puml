@@ -1,0 +1,16 @@
+@startuml sequence-dashboard.puml
+participant Dashboard
+participant "API Gateway" as API
+participant Redis
+participant "Sentiment Analysis" as Analysis
+
+Dashboard -> API: WebSocket connect
+API -> Redis: subscribe live_emotions
+loop every 1s
+  Redis -> Analysis: get_latest_stats()
+  Analysis -> Redis: publish_crowd_sentiment()
+  Redis -> API: emotion_stream_update()
+  API -> Dashboard: WebSocket emotion_data
+end
+@enduml
+

@@ -1,0 +1,115 @@
+# VantageNet - Emotion Analytics Platform
+# Hybrid Docker Compose Setup:
+# - Containerized: Dashboard (Node.js), API Gateway, Redis, PostgreSQL
+# - Local (my_env): Emotion Detection (PyTorch), Sentiment Analysis, Video Ingestion
+#
+# This hybrid approach saves storage/bandwidth by using local PyTorch installation
+
+services:
+  # ============================================
+  # Infrastructure Services (Containerized)
+  # ============================================
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: vantage-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vantage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vantage_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-vantage_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5434:5432"
+    networks:
+      - vantage-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vantage}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vantage-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - vantage-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Application Services (Containerized)
+  # ============================================
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: vantage-api-gateway
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-vantage}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vantage_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-vantage_db}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - vantage-network
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+    container_name: vantage-dashboard
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - vantage-network
+
+  # ============================================
+  # PyTorch Services - Run Locally (not in containers)
+  # ============================================
+  # The following services use PyTorch/heavy ML libraries
+  # and should be run locally using your my_env virtual environment:
+  #
+  # 1. Video Ingestion Service (port 8001)
+  # 2. Emotion Detection Service (port 8002)  
+  # 3. Sentiment Analysis Service (port 8003)
+  #
+  # Use ./scripts/run-local-services.sh to start them
+  # They connect to Redis and PostgreSQL via localhost ports
+  # ============================================
+
+networks:
+  vantage-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

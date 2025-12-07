@@ -1,0 +1,18 @@
+@startuml c4-component-sentiment.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container(sentiment_analysis, "Sentiment Analysis")
+
+Component(emotion_aggregator, "EmotionAggregator", "Python", "Crowd emotion stats")
+Component(rule_engine, "EmotionRuleEngine", "Python", "Business rule evaluation")
+Component(alert_generator, "AlertGenerator", "Python", "Contextual alerts")
+Component(analytics_writer, "AnalyticsWriter", "SQLAlchemy", "DB persistence")
+
+Rel(redis, emotion_aggregator, "Individual emotions")
+Rel(emotion_aggregator, rule_engine, "Crowd sentiment")
+Rel(rule_engine, alert_generator, "Triggered rules")
+Rel(alert_generator, notification_service, "Alerts")
+Rel(emotion_aggregator, analytics_writer, "Aggregated stats")
+Rel(analytics_writer, postgres, "Analytics data")
+@enduml
+

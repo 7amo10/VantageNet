@@ -1,0 +1,23 @@
+@startuml c4-context-emotion.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+Person(admin, "Business Admin", "Manages emotion rules & analytics")
+Person(operator, "Security Operator", "Receives real-time alerts")
+Person(marketer, "Marketing Team", "Views sentiment analytics")
+
+System_Boundary(c1, "Emotion Analytics Platform") {
+    System(emotion_platform, "Emotion Analytics", "Real-time emotion detection & sentiment analysis")
+}
+
+System_Ext(camera_system, "IP Cameras", "RTSP streams")
+System_Ext(notification_service, "Alert System", "Slack/Email/SMS")
+System_Ext(analytics_db, "Business Intelligence DB", "PostgreSQL")
+
+Rel(admin, emotion_platform, "Configures rules", "REST API")
+Rel(operator, emotion_platform, "Receives alerts", "WebSocket")
+Rel(marketer, emotion_platform, "Views analytics", "Dashboard")
+Rel(camera_system, emotion_platform, "Video streams", "RTSP")
+Rel(emotion_platform, notification_service, "Sends alerts", "Webhook")
+Rel(emotion_platform, analytics_db, "Stores analytics", "JDBC")
+@enduml
+

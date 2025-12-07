@@ -1,0 +1,32 @@
+@startuml c4-container-emotion.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+Person(admin, "Admin", "Configures rules")
+Person(operator, "Operator", "Receives alerts")
+
+System_Boundary(c2, "Emotion Analytics Platform") {
+    Container(video_ingestion, "Video Ingestion", "Python/FastAPI", "RTSP stream processing")
+    Container(emotion_detection, "Emotion Detection", "Python/YOLO+FER", "Face detection + emotion classification")
+    Container(sentiment_analysis, "Sentiment Analysis", "Python", "Crowd-level emotion aggregation")
+    Container(api_gateway, "API Gateway", "FastAPI", "REST + WebSocket APIs")
+    Container(react_dashboard, "Dashboard", "React/WebRTC", "Real-time UI")
+    
+    ContainerDb(postgres, "Event DB", "PostgreSQL", "Emotion events & analytics")
+    Container(redis, "Message Queue", "Redis Streams", "Async frame processing")
+}
+
+Rel(camera_system, video_ingestion, "RTSP", "TCP/554")
+Rel(video_ingestion, redis, "Publishes frames", "Redis Stream")
+Rel(redis, emotion_detection, "Consumes frames", "Redis Stream")
+Rel(emotion_detection, redis, "Publishes emotions", "Redis Stream")
+Rel(redis, sentiment_analysis, "Consumes emotions", "Redis Stream")
+Rel(sentiment_analysis, postgres, "Stores analytics", "JDBC")
+Rel(sentiment_analysis, notification_service, "Triggers alerts", "HTTP")
+Rel(admin, api_gateway, "CRUD rules", "REST")
+Rel(api_gateway, postgres, "Rule storage", "JDBC")
+Rel(api_gateway, redis, "Control messages", "Redis")
+Rel(operator, react_dashboard, "Live monitoring", "WebSocket")
+Rel(react_dashboard, api_gateway, "Real-time data", "WebSocket/REST")
+Rel(react_dashboard, redis, "Live streams", "SSE")
+@enduml
+

@@ -1,0 +1,28 @@
+@startuml c4-class-emotion-detection.puml
+abstract class EmotionDetector {
+  +detect_emotions(frame: Frame) -> List[EmotionResult]
+  +get_supported_emotions() -> List[str]
+}
+
+class YOLOFaceDetector {
+  -model: YOLO
+  +detect_faces(frame: Frame) -> List[FaceROI]
+}
+
+class FERClassifier {
+  -model: DeepFace
+  +classify_emotion(face_roi: FaceROI) -> EmotionResult
+}
+
+class EmotionResult {
+  -face_id: str
+  -bbox: Rect
+  -emotion: str
+  -confidence: float
+  -timestamp: datetime
+}
+
+EmotionDetector <|-- YOLOFaceDetector
+EmotionDetector <|-- FERClassifier
+@enduml
+
