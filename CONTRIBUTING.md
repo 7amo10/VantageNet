@@ -1052,11 +1052,32 @@ describe('CameraList', () => {
 
 ### Integration Tests
 
+Before running integration tests, validate that all services are healthy and can communicate:
+
+```bash
+# Verify all services are healthy first
+./scripts/health_check.sh
+
+# Only proceed if health check passes (exit code 0)
+if [ $? -eq 0 ]; then
+    echo "✓ Services healthy, proceeding with integration tests"
+else
+    echo "✗ Services unhealthy, fix issues before testing"
+    exit 1
+fi
+```
+
 Test service interactions using Docker Compose test environment.
 
 ```bash
 # Start test environment
 docker compose -f docker-compose.test.yml up -d
+
+# Wait for services to initialize
+sleep 30
+
+# Verify service discovery and health
+./scripts/health_check.sh
 
 # Run integration tests
 pytest tests/integration/
@@ -1064,6 +1085,14 @@ pytest tests/integration/
 # Cleanup
 docker compose -f docker-compose.test.yml down -v
 ```
+
+**Health Check Integration:**
+- Run `health_check.sh` before integration tests to validate service discovery
+- Validates Docker network communication (service-to-service)
+- Checks PostgreSQL and Redis connectivity
+- Verifies health endpoints respond correctly
+- Ensures no network timeouts or port conflicts
+- Exit code 0 = safe to run tests, 1 = fix issues first
 
 ### End-to-End Tests
 
@@ -1158,6 +1187,33 @@ curl http://localhost:8000/api/cameras/123e4567-e89b-12d3-a456-426614174000/stat
 
 ## Common Tasks
 
+### Health Check All Services
+
+Run the automated health check to verify all services are running and communicating:
+
+```bash
+# Run comprehensive health check
+./scripts/health_check.sh
+```
+
+This script validates:
+- Docker container status
+- PostgreSQL and Redis connectivity
+- All service health endpoints
+- Service discovery (Docker network DNS resolution)
+- Inter-service communication
+- Redis Streams configuration
+
+**Exit codes:**
+- `0` - All services healthy
+- `1` - One or more services unhealthy
+
+Use this script:
+- After starting services to confirm everything is running
+- Before committing to ensure your changes don't break services
+- In CI/CD pipelines for automated testing
+- When troubleshooting connectivity issues
+
 ### Start Development Environment
 
 ```bash
@@ -1172,6 +1228,9 @@ cd services/api-gateway && python -m app.main &
 
 # Start dashboard
 cd services/dashboard && npm run dev
+
+# Verify all services are healthy
+./scripts/health_check.sh
 ```
 
 ### Run Database Migration
