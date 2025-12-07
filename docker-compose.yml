@@ -35,9 +35,10 @@ services:
     image: redis:7-alpine
     container_name: vantage-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
       - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
       - "6380:6379"
     networks:
