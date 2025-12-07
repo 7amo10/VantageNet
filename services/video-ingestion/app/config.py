@@ -24,14 +24,14 @@ class Settings(BaseSettings):
     target_fps: int = 10
     frame_max_size_kb: int = 50
     jpeg_quality: int = 85
-    max_concurrent_streams: int = 4
+    max_concurrent_streams: int = 2  # Reduced from 4 
     
     # Connection Management
     reconnect_interval_seconds: int = 30
     max_reconnect_attempts: int = 10
     
     # Memory Limits
-    max_memory_mb: int = 512
+    max_memory_mb: int = 256  # Reduced from 512 
     
     class Config:
         env_file = ".env"
