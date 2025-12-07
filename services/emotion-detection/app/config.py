@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     
     # Processing Configuration
     process_every_n_frames: int = Field(
-        default=3,
+        default=5,  # Increased from 3 for memory optimization
         description="Process every Nth frame for efficiency"
     )
     max_memory_mb: int = Field(
-        default=2000,
+        default=512,  # Reduced from 2000 for 12GB system
         description="Maximum memory usage in MB"
     )
     confidence_threshold: float = Field(
