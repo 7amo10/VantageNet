@@ -1,0 +1,18 @@
+@startuml c4-component-emotion-detection.puml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+Container(emotion_detection, "Emotion Detection Service")
+
+Component(frame_consumer, "FrameConsumer", "Python", "Redis Stream consumer")
+Component(preprocessor, "FramePreprocessor", "OpenCV", "Face detection prep")
+Component(face_detector, "YOLOFaceDetector", "YOLOv8-face", "Detects faces")
+Component(emotion_classifier, "FERClassifier", "DeepFace/FER2013", "Emotion classification")
+Component(result_publisher, "EmotionPublisher", "Python", "Publishes to Redis")
+
+Rel(frame_consumer, preprocessor, "Raw frame")
+Rel(preprocessor, face_detector, "Preprocessed frame")
+Rel(face_detector, emotion_classifier, "Face ROIs")
+Rel(emotion_classifier, result_publisher, "Emotion results")
+Rel(result_publisher, redis, "Emotion events")
+@enduml
+

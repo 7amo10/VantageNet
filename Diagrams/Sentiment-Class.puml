@@ -1,0 +1,28 @@
+@startuml c4-class-sentiment.puml
+abstract class SentimentRule {
+  +abstract evaluate(crowd_emotions: List[EmotionResult]) -> Alert
+}
+
+class HappyHourRule {
+  +evaluate() -> Alert
+}
+
+class AngerThresholdRule {
+  +evaluate() -> Alert
+}
+
+class CrowdMoodRule {
+  +evaluate() -> Alert
+}
+
+class RuleEngine {
+  -rules: List[SentimentRule]
+  +add_rule(rule: SentimentRule)
+  +evaluate_all(crowd_emotions)
+}
+
+SentimentRule <|-- HappyHourRule
+SentimentRule <|-- AngerThresholdRule
+SentimentRule <|-- CrowdMoodRule
+@enduml
+

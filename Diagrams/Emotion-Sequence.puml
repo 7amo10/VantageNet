@@ -1,0 +1,23 @@
+@startuml sequence-emotion-processing.puml
+actor Camera
+participant "Video Ingestion" as Ingestion
+participant Redis
+participant "Emotion Detection" as Detection
+participant "Sentiment Analysis" as Analysis
+participant Postgres
+participant Slack
+
+Camera -> Ingestion: RTSP frame
+Ingestion -> Redis: publish_frame(frame_id, image)
+Redis -> Detection: consume_frame()
+Detection -> Detection: YOLO face detection
+Detection -> Detection: FER emotion classification
+Detection -> Redis: publish_emotion(face_id, emotion, confidence)
+Redis -> Analysis: consume_emotions()
+Analysis -> Analysis: aggregate crowd sentiment
+alt Rule triggered
+  Analysis -> Slack: send_alert("High anger detected!")
+end
+Analysis -> Postgres: store_analytics()
+@enduml
+

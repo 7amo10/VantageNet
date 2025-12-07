@@ -1,0 +1,14 @@
+@startuml sequence-rule-config.puml
+actor Admin
+participant "API Gateway" as API
+participant Postgres
+participant "Sentiment Analysis" as Analysis
+participant Redis
+
+Admin -> API: POST /rules {type: "anger_threshold", threshold: 0.7}
+API -> Postgres: INSERT rule_config
+API -> Redis: publish_rule_update()
+Redis -> Analysis: reload_rules()
+Analysis -> Analysis: load_rules_from_db()
+@enduml
+

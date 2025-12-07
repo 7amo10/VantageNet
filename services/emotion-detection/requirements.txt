@@ -1,0 +1,13 @@
+# Core dependencies (PyTorch should already be in your my_env)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+redis>=5.0.0
+python-dotenv>=1.0.0
+
+# ML dependencies (assuming PyTorch is already installed in my_env)
+# torch  # Already in your local environment
+# torchvision  # Already in your local environment
+ultralytics>=8.0.0  # YOLOv8
+deepface>=0.0.79
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
