@@ -521,6 +521,63 @@ bash scripts/init-redis-streams.sh
 
 ## Verification
 
+### Automated Health Check
+
+VantageNet includes a comprehensive health check script that validates all service connections and communications:
+
+```bash
+# Run the health check script
+./scripts/health_check.sh
+```
+
+**What the health check validates:**
+
+- ✓ All Docker containers running and healthy
+- ✓ PostgreSQL connectivity and database stats
+- ✓ Redis connectivity and stream configuration
+- ✓ All service health endpoints (API Gateway, Video Ingestion, Emotion Detection, Sentiment Analysis)
+- ✓ Service discovery within Docker network
+- ✓ Inter-service communication (API Gateway → Postgres, Redis)
+- ✓ Port accessibility summary
+
+**Expected output when all services are healthy:**
+
+```
+========================================
+VantageNet Health Check
+========================================
+
+--- 1. Docker Container Status ---
+✓ vantage-postgres: RUNNING (healthy)
+✓ vantage-redis: RUNNING (healthy)
+✓ vantage-api-gateway: RUNNING (healthy)
+✓ vantage-dashboard: RUNNING (healthy)
+
+--- 2. Database Connectivity ---
+✓ PostgreSQL: CONNECTED (8.3 MB, 1 connection)
+
+--- 3. Redis Connectivity ---
+✓ Redis: CONNECTED (274 MB, 1 client)
+✓ Redis Streams: CONFIGURED (emotion:events, sentiment:crowd)
+
+--- 4. Service Health Endpoints ---
+✓ API Gateway: HEALTHY
+✓ Video Ingestion: HEALTHY
+✓ Emotion Detection: HEALTHY
+✓ Sentiment Analysis: HEALTHY
+✓ Dashboard: HEALTHY
+
+--- Summary ---
+Total Checks: 15
+Passed: 15
+Failed: 0
+
+✓ ALL CHECKS PASSED
+System Status: All services are healthy and communicating properly.
+```
+
+**Note:** Local Python services (Video Ingestion, Emotion Detection, Sentiment Analysis) must be running in your Python environment for their health checks to pass. If running only Docker services, expect those to show as UNHEALTHY.
+
 ### Verify Docker Services
 
 ```bash
