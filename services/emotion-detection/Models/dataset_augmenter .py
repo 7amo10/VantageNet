@@ -1,0 +1,99 @@
+import os
+import random
+from PIL import Image
+from torchvision import transforms
+from tqdm import tqdm
+
+# ==========================================
+# 1. Configuration
+# ==========================================
+# Path to your original dataset (train folder)
+INPUT_DIR = r"processed_data/train" 
+
+# Path where to save the augmented dataset
+# (It will contain original images + new augmented ones)
+OUTPUT_DIR = r"processed_data/augmented_train" 
+
+# How many new images to create per original image?
+# Example: If 2, and you have 100 images, you will get 100 (orig) + 200 (new) = 300 total.
+AUGMENTATION_FACTOR = 3 
+
+# ==========================================
+# 2. Define Augmentation Pipeline
+# ==========================================
+# These transforms will be applied randomly
+augment_pipeline = transforms.Compose([
+    # Randomly rotate the image by up to 30 degrees
+    transforms.RandomRotation(degrees=30),
+    
+    # Randomly flip the image horizontally (p=0.5)
+    transforms.RandomHorizontalFlip(p=0.5),
+    
+    # Change brightness, contrast, saturation, and hue slightly
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    
+    # Randomly convert to grayscale (optional, since emotions rely on features)
+    transforms.RandomGrayscale(p=0.1),
+    
+    # Random Perspective (changes the angle of view)
+    transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
+])
+
+def augment_and_save():
+    # Check if input directory exists
+    if not os.path.exists(INPUT_DIR):
+        print(f"❌ Error: Input directory '{INPUT_DIR}' not found.")
+        return
+
+    print(f"🚀 Starting augmentation...")
+    print(f"📂 Input: {INPUT_DIR}")
+    print(f"📂 Output: {OUTPUT_DIR}")
+    print(f"🔢 Factor: {AUGMENTATION_FACTOR} new images per original image")
+
+    # Get list of classes (subfolders)
+    classes = [d for d in os.listdir(INPUT_DIR) if os.path.isdir(os.path.join(INPUT_DIR, d))]
+    
+    for class_name in classes:
+        class_input_path = os.path.join(INPUT_DIR, class_name)
+        class_output_path = os.path.join(OUTPUT_DIR, class_name)
+        
+        # Create output directory for this class
+        os.makedirs(class_output_path, exist_ok=True)
+        
+        # List all images in the class folder
+        images = [f for f in os.listdir(class_input_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        print(f"\nProcessing class: '{class_name}' ({len(images)} original images)")
+        
+        for img_name in tqdm(images, desc=f"Augmenting {class_name}"):
+            try:
+                # 1. Load original image
+                img_path = os.path.join(class_input_path, img_name)
+                image = Image.open(img_path).convert("RGB")
+                
+                # 2. Save the original image first (Copy it)
+                original_save_path = os.path.join(class_output_path, f"orig_{img_name}")
+                image.save(original_save_path)
+                
+                # 3. Generate augmented versions
+                for i in range(AUGMENTATION_FACTOR):
+                    # Apply transforms
+                    aug_img = augment_pipeline(image)
+                    
+                    # Construct new filename
+                    filename_no_ext = os.path.splitext(img_name)[0]
+                    ext = os.path.splitext(img_name)[1]
+                    new_filename = f"aug_{i}_{filename_no_ext}{ext}"
+                    
+                    # Save augmented image
+                    aug_save_path = os.path.join(class_output_path, new_filename)
+                    aug_img.save(aug_save_path)
+                    
+            except Exception as e:
+                print(f"⚠️ Error processing {img_name}: {e}")
+
+    print("\n✅ Data Augmentation Completed Successfully!")
+    print(f"Check your new dataset at: {OUTPUT_DIR}")
+
+if __name__ == "__main__":
+    augment_and_save()

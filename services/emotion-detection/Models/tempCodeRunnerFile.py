@@ -1,0 +1,1 @@
+ "services/emotion-detection/Models/results/resnet18_emotion.pt"
