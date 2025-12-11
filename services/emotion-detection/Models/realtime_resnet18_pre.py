@@ -18,7 +18,7 @@ NUM_CLASSES = 7
 EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 
 # Paths
-EFFICIENTNET_WEIGHTS = "services/emotion-detection/Models/results/efficientnet_emotion (1).pt"   # عدّل لو حاطه في مكان تاني
+EFFICIENTNET_WEIGHTS = "services/emotion-detection/Models/results/efficientnet_emotion (2).pt"   # عدّل لو حاطه في مكان تاني
 YOLO_WEIGHTS         = "services/emotion-detection/Models/yolov8n-face.pt"           # أو "yolov8n-face.pt" لو في نفس الفولدر
 
 
