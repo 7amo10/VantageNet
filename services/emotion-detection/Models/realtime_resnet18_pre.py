@@ -1,3 +1,31 @@
+"""
+Real-Time Emotion Detection Module using YOLOv8 and EfficientNet-B0.
+
+This script performs real-time emotion recognition on a video feed (webcam or video file).
+It integrates two deep learning models:
+1. **YOLOv8 (Face)**: Detects faces in each video frame.
+2. **EfficientNet-B0**: Classifies the cropped face into one of 7 emotion categories.
+
+Pipeline:
+    1. Capture frame from video source.
+    2. Detect faces using YOLOv8.
+    3. Crop the detected face region.
+    4. Preprocess the face image (Resize to 224x224, Grayscale to 3-channel, Normalize).
+    5. Pass the processed face to the loaded EfficientNet model for inference.
+    6. Draw bounding boxes and predicted emotion labels on the original frame.
+
+Dependencies:
+    - opencv-python (cv2)
+    - torch
+    - torchvision
+    - ultralytics (YOLO)
+    - numpy
+
+Usage:
+    Ensure the model weight paths (EFFICIENTNET_WEIGHTS, YOLO_WEIGHTS) are correct.
+    Run the script directly to start the webcam feed.
+"""
+
 import cv2
 import torch
 import torch.nn as nn
@@ -6,14 +34,14 @@ from ultralytics import YOLO
 import numpy as np
 
 # ==========================================
-# 1. إعدادات عامة
+# 1. General Settings
 # ==========================================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# نفس عدد الكلاسات اللي دربت بيه EfficientNet
+# Same number of classes used during EfficientNet training
 NUM_CLASSES = 7
 
-# تأكد إن ترتيب الليبلات هو نفس ترتيب الفولدرات في ImageFolder (أبجديًا غالبًا):
+# Ensure label order matches the ImageFolder structure (usually alphabetical):
 # angry, disgust, fear, happy, neutral, sad, surprise
 EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
 
@@ -23,7 +51,7 @@ YOLO_WEIGHTS         = "services/emotion-detection/Models/yolov8n-face.pt"      
 
 
 # ==========================================
-# 2. موديل EfficientNet-B0 (نفس اللي دربناه)
+# 2. EfficientNet-B0 Model (Same architecture as trained)
 # ==========================================
 class EmotionEfficientNet(nn.Module):
     def __init__(self, num_classes=7, pretrained=False):
@@ -36,6 +64,7 @@ class EmotionEfficientNet(nn.Module):
 
         self.base_model = models.efficientnet_b0(weights=weights)
 
+        # Modify the classifier to match our number of classes
         in_features = self.base_model.classifier[1].in_features
         self.base_model.classifier[1] = nn.Sequential(
             nn.Dropout(p=0.3),
@@ -47,6 +76,9 @@ class EmotionEfficientNet(nn.Module):
 
 
 def load_emotion_model(weights_path: str):
+    """
+    Initializes the model architecture and loads the saved state dictionary.
+    """
     model = EmotionEfficientNet(num_classes=NUM_CLASSES, pretrained=False)
     state = torch.load(weights_path, map_location=DEVICE)
     model.load_state_dict(state)
@@ -56,7 +88,7 @@ def load_emotion_model(weights_path: str):
 
 
 # ==========================================
-# 3. YOLO model + Transform للصورة
+# 3. YOLO Model + Image Transforms
 # ==========================================
 print("🔄 Loading YOLO face model...")
 yolo_model = YOLO(YOLO_WEIGHTS)
@@ -64,14 +96,14 @@ yolo_model = YOLO(YOLO_WEIGHTS)
 print("🔄 Loading EfficientNet emotion model...")
 emotion_model = load_emotion_model(EFFICIENTNET_WEIGHTS)
 
-# Transform للوجه قبل دخوله EfficientNet
+# Transform for the face image before passing to EfficientNet
 face_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.Grayscale(num_output_channels=3),
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],   # نفس اللي استخدمته في التدريب
+        mean=[0.485, 0.456, 0.406],   # Same normalization used in training
         std=[0.229, 0.224, 0.225],
     ),
 ])
@@ -79,15 +111,21 @@ face_transform = transforms.Compose([
 
 def predict_emotion(face_bgr: np.ndarray) -> str:
     """
-    face_bgr: صورة الوجه (crop) من OpenCV (BGR)
+    Predicts emotion from a cropped face image.
+
+    Args:
+        face_bgr: Cropped face image from OpenCV (BGR format).
+
+    Returns:
+        str: Predicted emotion label.
     """
     if face_bgr is None or face_bgr.size == 0:
         return "unknown"
 
-    # BGR -> RGB
+    # Convert BGR -> RGB
     face_rgb = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB)
 
-    # إلى Tensor
+    # Preprocess and convert to Tensor
     img = face_transform(face_rgb).unsqueeze(0).to(DEVICE)
 
     with torch.no_grad():
@@ -95,7 +133,7 @@ def predict_emotion(face_bgr: np.ndarray) -> str:
         _, pred = torch.max(outputs, 1)
         idx = pred.item()
 
-    # حماية لو حصل أي غلطة في الـ index
+    # Safety check for index out of bounds
     if idx < 0 or idx >= len(EMOTION_LABELS):
         return "unknown"
 
@@ -103,13 +141,13 @@ def predict_emotion(face_bgr: np.ndarray) -> str:
 
 
 # ==========================================
-# 4. حلقة الـ Real-Time
+# 4. Real-Time Loop
 # ==========================================
 def main():
-    # لو شغال على جهازك المحلي:
+    # If running on local machine (Webcam):
     cap = cv2.VideoCapture(0)
 
-    # لو في كولاب ومش عندك كاميرا تبقى تشغّل على فيديو:
+    # If running on Colab or without a camera, use a video file:
     # cap = cv2.VideoCapture("/content/your_video.mp4")
 
     if not cap.isOpened():
@@ -123,7 +161,7 @@ def main():
         if not ret:
             break
 
-        # تشغيل YOLO على الفريم (stream=True عشان نلف على النتائج)
+        # Run YOLO on the frame (stream=True for generator efficiency)
         results = yolo_model(frame, stream=True, verbose=False)
 
         for r in results:
@@ -135,6 +173,7 @@ def main():
                 x1, y1, x2, y2 = map(int, xyxy)
 
                 h, w, _ = frame.shape
+                # Ensure coordinates are within frame bounds
                 x1 = max(0, min(x1, w - 1))
                 x2 = max(0, min(x2, w - 1))
                 y1 = max(0, min(y1, h - 1))
@@ -149,7 +188,7 @@ def main():
 
                 emotion = predict_emotion(face)
 
-                # رسم البوكس والليبل
+                # Draw bounding box and label
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
                 cv2.putText(
                     frame,

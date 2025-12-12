@@ -26,15 +26,19 @@ class Settings(BaseSettings):
     
     # Model Configuration
     yolo_model_path: str = Field(
-        default="yolov8n.pt",
+        default="services/emotion-detection/Models/yolov8n-face.pt",
         description="Path to YOLOv8 model (will auto-download if not found)"
     )
+    # fer_model_name: str = Field(
+    #     default="Emotion",
+    #     description="DeepFace emotion model name"
+    # )
     fer_model_name: str = Field(
-        default="Emotion",
-        description="DeepFace emotion model name"
+        default="services/emotion-detection/Models/results/efficientnet_emotion (1).pt",
+        description="Path to custom EfficientNet PyTorch model"
     )
     fer_backend: str = Field(
-        default="opencv",
+        default="skip", # skip because we will use yolo 
         description="DeepFace backend (opencv, ssd, etc.)"
     )
     

@@ -1,147 +1,127 @@
-# import os
-# import shutil
-# import random
-# from tqdm import tqdm
+"""
+Dataset Splitter Module.
 
+This script organizes a flat dataset directory into a standard Train/Validation structure 
+required by PyTorch's ImageFolder or Keras's flow_from_directory.
 
-# class DataSplitter :
-#     def __init__(self ,dataset_root , train_ratio =0.8 , seed = 42 ):
-#         self.dataset_root = dataset_root
-#         self.train_ratio = train_ratio
-#         self.seed = seed
-        
-#         random.seed(self.seed)
-        
-#         self.train_dir = os.path.join(self.dataset_root , "train")
-#         self.val_dir = os.path.join(self.dataset_root , "val") 
-        
-#     def _list_classes(self):
-#         classes = []
-        
-#         for name in os.listdir(self.dataset_root):
-#             path = os.path.join(self.dataset_root , name)
-            
-#             if os.path.isdir(path) and name not in ["train" , "val"]:
-#                 classes.append(name)
+Structure Transformation:
+-------------------------
+Before:
+    dataset_root/
+    ├── angry/
+    ├── happy/
+    └── sad/
 
-#         return classes
-    
-#     def _create_dir(self,classes):
-#         for cls in classes :
-#             os.makedirs(os.path.join(self.train_dir , cls) , exist_ok=True)
-#             os.makedirs(os.path.join(self.val_dir , cls) , exist_ok=True)
-        
-#     def split(self):
-#         classes = self._list_classes()
-#         print("classes" , classes)
-        
-#         self._create_dir(classes)
-        
-        
-#         for cls in classes :
-#             class_path = os.path.join(self.dataset_root , cls)
-            
-#             images = [
-#                 f for f in os.listdir(class_path) if os.path.isfile(os.path.join(class_path , f))
-#             ]
-            
-#             print("images" , images)
-            
-            
-#             random.shuffle(images)
-            
-            
-#             train_count = int(len(images) * self.train_ratio)
-#             train_imgs = images[:train_count]
-#             val_imgs = images[train_count:]
-            
-            
-#             for img in tqdm(train_imgs,desc=f"train {cls}" ,ncols=60):
-#                 src = os.path.join(class_path , img)
-#                 dst = os.path.join(self.train_dir , cls , img)
-#                 shutil.copy(src , dst)
-
-
-# if __name__ == "__main__":
-#     splitter = DataSplitter("services\emotion-detection\Models\Data\processed_data")
-#     splitter.split()
-
+After:
+    dataset_root/
+    ├── train/
+    │   ├── angry/
+    │   ├── happy/
+    │   └── sad/
+    ├── val/
+    │   ├── angry/
+    │   ├── happy/
+    │   └── sad/
+    ├── angry/  (Original folders remain safe)
+    ├── happy/
+    └── sad/
+"""
 
 import os
 import shutil
 import random
 from tqdm import tqdm
-
+from typing import List
 
 class DataSplitter:
-    def __init__(self, dataset_root, train_ratio=0.8, seed=42):
+    def __init__(self, dataset_root: str, train_ratio: float = 0.8, seed: int = 42):
+        """
+        Args:
+            dataset_root (str): Path to the folder containing class subfolders.
+            train_ratio (float): Percentage of data to use for training (0.0 to 1.0).
+            seed (int): Random seed for reproducibility.
+        """
         self.dataset_root = dataset_root
         self.train_ratio = train_ratio
         self.seed = seed
 
+        # Set seed for reproducible splits
         random.seed(self.seed)
 
         self.train_dir = os.path.join(self.dataset_root, "train")
         self.val_dir = os.path.join(self.dataset_root, "val")
 
-    def _list_classes(self):
+    def _get_classes(self) -> List[str]:
+        """Scans the root directory for class folders, ignoring 'train' and 'val'."""
         classes = []
         for name in os.listdir(self.dataset_root):
             path = os.path.join(self.dataset_root, name)
-            # استثني train/val
+            
+            # Skip non-directories and the output folders themselves
             if os.path.isdir(path) and name not in ["train", "val"]:
                 classes.append(name)
         return classes
 
-    def _create_dir(self, classes):
+    def _create_output_dirs(self, classes: List[str]):
+        """Creates the necessary train/val directory structure."""
         for cls in classes:
             os.makedirs(os.path.join(self.train_dir, cls), exist_ok=True)
             os.makedirs(os.path.join(self.val_dir, cls), exist_ok=True)
 
     def split(self):
-        classes = self._list_classes()
-        print("classes:", classes)
+        """Main method to execute the split."""
+        classes = self._get_classes()
+        print(f"Found classes: {classes}")
 
-        self._create_dir(classes)
+        self._create_output_dirs(classes)
 
         for cls in classes:
             class_path = os.path.join(self.dataset_root, cls)
 
+            # Filter for valid image files only
             images = [
                 f for f in os.listdir(class_path)
-                if os.path.isfile(os.path.join(class_path, f))
+                if os.path.isfile(os.path.join(class_path, f)) 
+                and f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))
             ]
 
-            print(f"\nClass {cls} - {len(images)} images")
+            print(f"\nProcessing Class: {cls} - {len(images)} images found.")
 
+            # Shuffle to ensure random distribution
             random.shuffle(images)
 
+            # Calculate split index
             train_count = int(len(images) * self.train_ratio)
             train_imgs = images[:train_count]
             val_imgs = images[train_count:]
 
-            # نسخ صور الـ train
-            for img in tqdm(train_imgs, desc=f"train {cls}", ncols=60):
+            # Copy Train images
+            for img in tqdm(train_imgs, desc=f"Copying Train ({cls})", ncols=80):
                 src = os.path.join(class_path, img)
                 dst = os.path.join(self.train_dir, cls, img)
                 shutil.copy2(src, dst)
 
-            # نسخ صور الـ val
-            for img in tqdm(val_imgs, desc=f"val   {cls}", ncols=60):
+            # Copy Validation images
+            for img in tqdm(val_imgs, desc=f"Copying Val   ({cls})", ncols=80):
                 src = os.path.join(class_path, img)
                 dst = os.path.join(self.val_dir, cls, img)
                 shutil.copy2(src, dst)
 
-        print("\n>>> Done splitting dataset!")
+        print("\n✅ Dataset splitting completed successfully!")
+        print(f"Train set location: {self.train_dir}")
+        print(f"Val set location:   {self.val_dir}")
 
 
 if __name__ == "__main__":
-    # خليك حريص مع الـ backslashes في ويندوز
-    # يا إمّا تستخدم raw string:
-    # splitter = DataSplitter(r"services\emotion-detection\Models\Data\processed_data")
-    # أو الأفضل:
-    base_path = os.path.join(
+    # Define the path using os.path.join for cross-platform compatibility (Windows/Mac/Linux)
+    dataset_path = os.path.join(
         "services", "emotion-detection", "Models", "Data", "processed_data"
     )
-    splitter = DataSplitter(base_path)
-    splitter.split()
+    
+    # Initialize and run
+    # Ensure the path actually exists before running
+    if os.path.exists(dataset_path):
+        splitter = DataSplitter(dataset_path, train_ratio=0.8)
+        splitter.split()
+    else:
+        print(f"❌ Error: The path '{dataset_path}' does not exist.")

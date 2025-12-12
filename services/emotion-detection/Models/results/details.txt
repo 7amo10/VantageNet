@@ -1,0 +1,6 @@
+Fianl weight used : "services/emotion-detection/Models/results/efficientnet_emotion (1).pt"
+Final model File : "services/emotion-detection/Models/efficientNetModel.py"
+Final yolov8 file : "services/emotion-detection/Models/yolov8n-face.pt"
+
+
+If you need othe model you may use : "services/emotion-detection/Models/yolo_deepface.py"

@@ -12,6 +12,7 @@ build/
 .venv/
 venv/
 my_env/
+venv_compatible/
 
 # IDE
 .vscode/

@@ -6,8 +6,25 @@ import torch
 from ultralytics import YOLO
 from .config import settings
 from .models import ModelStatus
-
+import torch.nn as nn
+from torchvision import models
 logger = logging.getLogger(__name__)
+
+class EmotionEfficientNet(nn.Module):
+    def __init__(self, num_classes=7):
+        super(EmotionEfficientNet, self).__init__()
+        # تحميل الهيكل فقط بدون أوزان ImageNet لأننا سنحمل أوزانك الخاصة
+        self.base_model = models.efficientnet_b0(weights=None)
+        
+        in_features = self.base_model.classifier[1].in_features
+        self.base_model.classifier[1] = nn.Sequential(
+            nn.Dropout(p=0.3),
+            nn.Linear(in_features, num_classes)
+        )
+
+    def forward(self, x):
+        return self.base_model(x)
+    
 
 
 class ModelLoader:
@@ -87,33 +104,53 @@ class ModelLoader:
     
     async def _load_fer(self) -> bool:
         """Load FER (Facial Expression Recognition) model."""
+
         try:
-            logger.info(f"Loading FER model: {settings.fer_model_name}")
+            logger.info(f"Loading EfficientNet from {settings.fer_model_path}")
             
-            # Import DeepFace
-            from deepface import DeepFace
+            # 1. تهيئة الموديل
+            model = EmotionEfficientNet(num_classes=settings.num_classes)
             
-            # Pre-load model by running a dummy prediction
-            # This forces DeepFace to download and cache the model
-            import numpy as np
-            dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
+            # 2. تحميل الأوزان
+            # map_location مهم جداً لضمان التحميل على CPU إذا لم يوجد GPU
+            state_dict = torch.load(settings.fer_model_path, map_location=self.device)
+            model.load_state_dict(state_dict)
             
-            try:
-                # This will download the model if not cached
-                _ = DeepFace.analyze(
-                    img_path=dummy_img,
-                    actions=['emotion'],
-                    detector_backend=settings.fer_backend,
-                    enforce_detection=False,
-                    silent=True
-                )
-            except:
-                # Expected to fail on dummy image, but model should now be cached
-                pass
+            # 3. النقل للـ Device ووضع Evaluation Mode
+            model.to(self.device)
+            model.eval() # مهم جداً لإيقاف الـ Dropout وتثبيت الـ BatchNorm
             
-            self.fer_model = "loaded"  # DeepFace doesn't return model object
-            logger.info("✓ FER model loaded successfully")
+            self.fer_model = model
+            logger.info("✓ Custom EfficientNet loaded successfully")
             return True
+        
+        # try:
+        #     logger.info(f"Loading FER model: {settings.fer_model_name}")
+            
+        #     # Import DeepFace
+        #     from deepface import DeepFace
+            
+        #     # Pre-load model by running a dummy prediction
+        #     # This forces DeepFace to download and cache the model
+        #     import numpy as np
+        #     dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
+            
+        #     try:
+        #         # This will download the model if not cached
+        #         _ = DeepFace.analyze(
+        #             img_path=dummy_img,
+        #             actions=['emotion'],
+        #             detector_backend=settings.fer_backend,
+        #             enforce_detection=False,
+        #             silent=True
+        #         )
+        #     except:
+        #         # Expected to fail on dummy image, but model should now be cached
+        #         pass
+            
+        #     self.fer_model = "loaded"  # DeepFace doesn't return model object
+        #     logger.info("✓ FER model loaded successfully")
+        #     return True
             
         except Exception as e:
             error_msg = f"Failed to load FER model: {e}"
@@ -125,20 +162,29 @@ class ModelLoader:
         """Get status of all loaded models."""
         current_memory = self.get_memory_usage()
         
+        # return [
+        #     ModelStatus(
+        #         name="YOLOv8-face",
+        #         loaded=self.yolo_model is not None,
+        #         memory_mb=current_memory / 2 if self.yolo_model else None,
+        #         error=self.load_errors.get("yolo")
+        #     ),
+        #     ModelStatus(
+        #         name="FER (DeepFace)",
+        #         loaded=self.fer_model is not None,
+        #         memory_mb=current_memory / 2 if self.fer_model else None,
+        #         error=self.load_errors.get("fer")
+        #     )
+        # ]
+
+        mem = self.get_memory_usage()
         return [
-            ModelStatus(
-                name="YOLOv8-face",
-                loaded=self.yolo_model is not None,
-                memory_mb=current_memory / 2 if self.yolo_model else None,
-                error=self.load_errors.get("yolo")
-            ),
-            ModelStatus(
-                name="FER (DeepFace)",
-                loaded=self.fer_model is not None,
-                memory_mb=current_memory / 2 if self.fer_model else None,
-                error=self.load_errors.get("fer")
-            )
+            ModelStatus(name="YOLOv8", loaded=self.yolo_model is not None, memory_mb=mem/2),
+            ModelStatus(name="EfficientNet", loaded=self.fer_model is not None, memory_mb=mem/2)
         ]
+    
+
+    
     
     def unload_models(self):
         """Unload models and free memory."""
