@@ -1,5 +1,16 @@
+"""
+Offline Data Augmentation Script.
+
+This script artificially increases the size of the training dataset by generating 
+modified versions of existing images (rotations, flips, color jitter, etc.).
+It saves the original + augmented images into a new directory.
+
+Usage:
+    Adjust INPUT_DIR and OUTPUT_DIR to match your folder structure.
+    Run this script ONCE before starting the training process.
+"""
+
 import os
-import random
 from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
@@ -7,21 +18,22 @@ from tqdm import tqdm
 # ==========================================
 # 1. Configuration
 # ==========================================
-# Path to your original dataset (train folder)
+# Path to your original dataset (train folder containing class subfolders)
 INPUT_DIR = r"processed_data/train" 
 
 # Path where to save the augmented dataset
-# (It will contain original images + new augmented ones)
+# (Will contain original images + new augmented ones)
 OUTPUT_DIR = r"processed_data/augmented_train" 
 
-# How many new images to create per original image?
-# Example: If 2, and you have 100 images, you will get 100 (orig) + 200 (new) = 300 total.
+# Augmentation Factor: How many NEW images to create per original image?
+# Total images = Original + (Original * AUGMENTATION_FACTOR)
+# Example: 100 images with Factor 3 => 100 + 300 = 400 total images.
 AUGMENTATION_FACTOR = 3 
 
 # ==========================================
 # 2. Define Augmentation Pipeline
 # ==========================================
-# These transforms will be applied randomly
+# These transforms will be applied stochastically (randomly)
 augment_pipeline = transforms.Compose([
     # Randomly rotate the image by up to 30 degrees
     transforms.RandomRotation(degrees=30),
@@ -29,24 +41,27 @@ augment_pipeline = transforms.Compose([
     # Randomly flip the image horizontally (p=0.5)
     transforms.RandomHorizontalFlip(p=0.5),
     
-    # Change brightness, contrast, saturation, and hue slightly
+    # Change brightness, contrast, saturation, and hue slightly to simulate lighting conditions
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     
-    # Randomly convert to grayscale (optional, since emotions rely on features)
+    # Randomly convert to grayscale (optional, robust against color dependency)
     transforms.RandomGrayscale(p=0.1),
     
-    # Random Perspective (changes the angle of view)
+    # Random Perspective (changes the angle of view, good for faces)
     transforms.RandomPerspective(distortion_scale=0.2, p=0.5),
 ])
 
 def augment_and_save():
-    # Check if input directory exists
+    """
+    Iterates through class folders, augments images, and saves them to the output directory.
+    """
+    # Verify input directory
     if not os.path.exists(INPUT_DIR):
         print(f"❌ Error: Input directory '{INPUT_DIR}' not found.")
         return
 
     print(f"🚀 Starting augmentation...")
-    print(f"📂 Input: {INPUT_DIR}")
+    print(f"📂 Input:  {INPUT_DIR}")
     print(f"📂 Output: {OUTPUT_DIR}")
     print(f"🔢 Factor: {AUGMENTATION_FACTOR} new images per original image")
 
@@ -60,7 +75,7 @@ def augment_and_save():
         # Create output directory for this class
         os.makedirs(class_output_path, exist_ok=True)
         
-        # List all images in the class folder
+        # List all valid images in the class folder
         images = [f for f in os.listdir(class_input_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
         
         print(f"\nProcessing class: '{class_name}' ({len(images)} original images)")
@@ -71,16 +86,16 @@ def augment_and_save():
                 img_path = os.path.join(class_input_path, img_name)
                 image = Image.open(img_path).convert("RGB")
                 
-                # 2. Save the original image first (Copy it)
+                # 2. Save the ORIGINAL image first (to keep it in the new dataset)
                 original_save_path = os.path.join(class_output_path, f"orig_{img_name}")
                 image.save(original_save_path)
                 
-                # 3. Generate augmented versions
+                # 3. Generate AUGMENTED versions
                 for i in range(AUGMENTATION_FACTOR):
                     # Apply transforms
                     aug_img = augment_pipeline(image)
                     
-                    # Construct new filename
+                    # Construct new filename (e.g., aug_0_image.jpg)
                     filename_no_ext = os.path.splitext(img_name)[0]
                     ext = os.path.splitext(img_name)[1]
                     new_filename = f"aug_{i}_{filename_no_ext}{ext}"
