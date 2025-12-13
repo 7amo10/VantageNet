@@ -1,9 +1,65 @@
-# VANTA-13 Testing Guide
+# Testing Guide
 
 ## Overview
-This directory contains integration tests for VANTA-13: Frame-to-Emotion Pipeline.
+This directory contains tests for the VantageNet emotion detection system:
+- **Unit Tests (VANTA-16):** Test individual components (YOLO, FER, pipeline)
+- **Integration Tests (VANTA-13):** Test complete E2E pipeline with services
 
-## Test Scripts
+---
+
+## Unit Tests (VANTA-16)
+
+### test_detection.py
+**Purpose:** Comprehensive unit tests for emotion detection service components.
+
+**Test Coverage:**
+1. ✅ **test_yolo_model_loads** - Verify YOLO model initialization
+2. ✅ **test_yolo_inference_single_face** - Face detection on known image
+3. ✅ **test_yolo_inference_no_faces** - Handle empty frames gracefully
+4. ✅ **test_fer_model_loads** - Verify FER model initialization
+5. ✅ **test_fer_inference_all_emotions** - Emotion classification accuracy
+6. ✅ **test_pipeline_end_to_end** - Full decompress → YOLO → FER flow
+7. ✅ **test_frame_decompression** - JPEG decoding at various quality levels
+8. ✅ **test_error_handling** - Graceful handling of corrupted data
+9. 🕐 **test_memory_leak** - No memory leaks after 1000 frames (slow)
+10. 🕐 **test_inference_speed** - FPS ≥ 30 benchmark (slow)
+
+**Usage:**
+```bash
+# Run all fast tests (excludes memory/performance tests)
+python -m pytest tests/test_detection.py -v -m "not slow"
+
+# Run all tests including slow ones
+python -m pytest tests/test_detection.py -v
+
+# Run specific test
+python -m pytest tests/test_detection.py::test_yolo_model_loads -v
+
+# Run with coverage
+python -m pytest tests/test_detection.py -v --cov=services/emotion-detection/app --cov-report=html
+```
+
+**Test Fixtures:**
+- `tests/fixtures/single_face.jpg` - Synthetic face for testing
+- `tests/fixtures/no_face.jpg` - Landscape without faces
+- `tests/fixtures/multi_face.jpg` - Multiple faces
+
+**Requirements:**
+- pytest >= 7.0
+- pytest-asyncio >= 0.21
+- YOLO model: `services/emotion-detection/Models/yolov8n-face.pt`
+- FER model: `services/emotion-detection/Models/results/efficientnet_emotion (1).pt`
+- No Redis required (tests run standalone)
+
+**Quality Metrics:**
+- ✅ All 8 fast tests passing
+- ✅ Test execution time: <5s (fast tests)
+- 🎯 Target coverage: ≥80% for app/ modules
+- ✅ Deterministic: No random failures
+
+---
+
+## Integration Tests (VANTA-13)
 
 ### 1. End-to-End Integration Test
 **File:** `test_e2e_pipeline.py`
