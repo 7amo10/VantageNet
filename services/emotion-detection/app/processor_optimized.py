@@ -22,6 +22,7 @@ from .redis_consumer import redis_consumer
 from .redis_publisher import redis_publisher
 from .model_loader import model_loader
 from .config import settings
+from .face_tracker import FaceTracker
 
 # Configure JSON logging
 logging.basicConfig(
@@ -102,6 +103,7 @@ class OptimizedFrameProcessor:
         self.yolo_times: Deque[float] = deque(maxlen=100)
         self.fer_times: Deque[float] = deque(maxlen=100)
         self.redis_times: Deque[float] = deque(maxlen=100)
+        self.tracking_times: Deque[float] = deque(maxlen=100)
         
         self.last_metrics_publish = time.time()
         self.last_fps_calc = time.time()
@@ -111,6 +113,13 @@ class OptimizedFrameProcessor:
         self.face_cache = FaceCache(ttl_frames=FACE_CACHE_FRAMES)
         self.cache_hits = 0
         self.cache_misses = 0
+        
+        # Face tracking
+        self.face_tracker = FaceTracker(
+            max_missing_frames=10,
+            match_threshold=0.3,
+            use_orb=True
+        )
         
         # Batch processing
         self.batch_buffer: List[Tuple] = []
@@ -377,6 +386,43 @@ class OptimizedFrameProcessor:
                 self.errors_total += 1
                 return
             
+            # 3.5. Face tracking - assign stable face_id
+            tracking_start = time.time()
+            tracked_faces = []
+            try:
+                # Prepare detections for tracking (x1, y1, x2, y2, conf)
+                detections_for_tracking = []
+                for box_data in yolo_boxes:
+                    x1, y1, x2, y2 = box_data['xyxy']
+                    conf = box_data['conf']
+                    detections_for_tracking.append((int(x1), int(y1), int(x2), int(y2), float(conf)))
+                
+                # Track faces and get stable IDs
+                tracked_faces = self.face_tracker.track_faces(frame, detections_for_tracking)
+                
+                tracking_time = (time.time() - tracking_start) * 1000
+                self.tracking_times.append(tracking_time)
+                
+            except Exception as e:
+                logger.warning(json.dumps({
+                    "level": "WARNING",
+                    "message": "Face tracking failed, falling back to frame-based IDs",
+                    "error": str(e),
+                    "camera_id": frame_data.camera_id,
+                    "frame_number": frame_data.frame_number,
+                    "timestamp": datetime.now().isoformat()
+                }))
+                # Fallback: use frame-based IDs
+                for idx, box_data in enumerate(yolo_boxes):
+                    x1, y1, x2, y2 = box_data['xyxy']
+                    tracked_faces.append({
+                        'face_id': f"{frame_data.camera_id}_{frame_data.frame_number}_{idx}",
+                        'bbox': (int(x1), int(y1), int(x2), int(y2)),
+                        'confidence': box_data['conf'],
+                        'is_new': True,
+                        'frames_tracked': 1
+                    })
+            
             faces_list = []
             emotions_list = []
             
@@ -385,10 +431,11 @@ class OptimizedFrameProcessor:
             
             # 4. FER emotion classification (optimized BGR→RGB conversion)
             fer_start = time.time()
-            for idx, box_data in enumerate(yolo_boxes):
+            for tracked_face in tracked_faces:
                 try:
-                    x1, y1, x2, y2 = box_data['xyxy']
-                    conf = box_data['conf']
+                    x1, y1, x2, y2 = tracked_face['bbox']
+                    conf = tracked_face['confidence']
+                    face_id = tracked_face['face_id']
                     
                     # Boundary correction
                     h, w, _ = frame.shape
@@ -400,10 +447,7 @@ class OptimizedFrameProcessor:
                     if face_img.size == 0:
                         continue
                     
-                    # Create face ID
-                    face_id = f"{frame_data.camera_id}_{frame_data.frame_number}_{len(faces_list)}"
-                    
-                    # Store face detection
+                    # Store face detection with stable face_id
                     faces_list.append(FaceDetection(
                         bbox=[float(x1), float(y1), float(x2), float(y2)],
                         confidence=conf,
@@ -555,12 +599,18 @@ class OptimizedFrameProcessor:
         avg_yolo = sum(self.yolo_times) / len(self.yolo_times) if self.yolo_times else 0
         avg_fer = sum(self.fer_times) / len(self.fer_times) if self.fer_times else 0
         avg_redis = sum(self.redis_times) / len(self.redis_times) if self.redis_times else 0
+        avg_tracking = sum(self.tracking_times) / len(self.tracking_times) if self.tracking_times else 0
+        
+        # Get tracking stats
+        tracking_stats = self.face_tracker.get_stats()
         
         metrics = {
             "fps": round(self.fps, 2),
             "avg_latency_ms": round(avg_latency, 2),
             "errors_total": self.errors_total,
-            "cache_hit_rate": round((self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0, 1)
+            "cache_hit_rate": round((self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0, 1),
+            "active_tracked_faces": tracking_stats["active_faces"],
+            "total_faces_tracked": tracking_stats["total_faces_seen"]
         }
         
         await redis_publisher.publish_metrics(metrics)
@@ -573,7 +623,9 @@ class OptimizedFrameProcessor:
                 "decompress_ms": round(avg_decompress, 2),
                 "yolo_ms": round(avg_yolo, 2),
                 "fer_ms": round(avg_fer, 2),
-                "redis_ms": round(avg_redis, 2)
+                "redis_ms": round(avg_redis, 2),
+                "tracking_ms": round(avg_tracking, 2)
+            }
             },
             "timestamp": datetime.now().isoformat()
         }))
@@ -585,6 +637,9 @@ class OptimizedFrameProcessor:
         avg_yolo = sum(self.yolo_times) / len(self.yolo_times) if self.yolo_times else 0
         avg_fer = sum(self.fer_times) / len(self.fer_times) if self.fer_times else 0
         avg_redis = sum(self.redis_times) / len(self.redis_times) if self.redis_times else 0
+        avg_tracking = sum(self.tracking_times) / len(self.tracking_times) if self.tracking_times else 0
+        
+        tracking_stats = self.face_tracker.get_stats()
         
         return {
             "frames_processed": self.frames_processed,
@@ -597,12 +652,15 @@ class OptimizedFrameProcessor:
                 "decompress": round(avg_decompress, 2),
                 "yolo": round(avg_yolo, 2),
                 "fer": round(avg_fer, 2),
-                "redis": round(avg_redis, 2)
+                "redis": round(avg_redis, 2),
+                "tracking": round(avg_tracking, 2)
             },
             "cache_stats": {
                 "hits": self.cache_hits,
                 "misses": self.cache_misses,
                 "hit_rate": f"{(self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0:.1f}%"
+            },
+            "tracking_stats": tracking_stats
             },
             "running": self.running
         }
