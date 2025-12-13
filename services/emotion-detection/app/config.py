@@ -26,16 +26,16 @@ class Settings(BaseSettings):
     
     # Model Configuration
     yolo_model_path: str = Field(
-        default="services/emotion-detection/Models/yolov8n-face.pt",
-        description="Path to YOLOv8 model (will auto-download if not found)"
+        default="Models/yolov8n-face.pt",
+        description="Path to YOLOv8 model (relative to emotion-detection service)"
     )
-    # fer_model_name: str = Field(
-    #     default="Emotion",
-    #     description="DeepFace emotion model name"
-    # )
+    fer_model_path: str = Field(
+        default="Models/results/efficientnet_emotion (1).pt",
+        description="Path to custom EfficientNet PyTorch model (relative to emotion-detection service)"
+    )
     fer_model_name: str = Field(
-        default="services/emotion-detection/Models/results/efficientnet_emotion (1).pt",
-        description="Path to custom EfficientNet PyTorch model"
+        default="Models/results/efficientnet_emotion (1).pt",
+        description="Alias for fer_model_path (backward compatibility)"
     )
     fer_backend: str = Field(
         default="skip", # skip because we will use yolo 
@@ -48,12 +48,20 @@ class Settings(BaseSettings):
         description="Process every Nth frame for efficiency"
     )
     max_memory_mb: int = Field(
-        default=512,  # Reduced from 2000 for 12GB system
+        default=2000,  # 2GB for models
         description="Maximum memory usage in MB"
     )
     confidence_threshold: float = Field(
         default=0.5,
         description="Minimum confidence for face detection"
+    )
+    emotion_threshold: float = Field(
+        default=0.3,
+        description="Minimum confidence for emotion prediction"
+    )
+    num_classes: int = Field(
+        default=7,
+        description="Number of emotion classes"
     )
     
     # Performance
