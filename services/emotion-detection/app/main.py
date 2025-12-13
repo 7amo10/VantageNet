@@ -16,7 +16,16 @@ from .config import settings
 from .models import HealthResponse
 from .redis_consumer import redis_consumer
 from .model_loader import model_loader
-from .processor import frame_processor
+
+# Use optimized processor if available, fallback to standard processor
+try:
+    from .processor_optimized import frame_processor
+    logger = logging.getLogger(__name__)
+    logger.info("Using optimized frame processor (CPU-optimized)")
+except ImportError:
+    from .processor import frame_processor
+    logger = logging.getLogger(__name__)
+    logger.info("Using standard frame processor")
 
 # Configure structured logging
 logging.basicConfig(
