@@ -625,7 +625,6 @@ class OptimizedFrameProcessor:
                 "fer_ms": round(avg_fer, 2),
                 "redis_ms": round(avg_redis, 2),
                 "tracking_ms": round(avg_tracking, 2)
-            }
             },
             "timestamp": datetime.now().isoformat()
         }))
@@ -660,8 +659,7 @@ class OptimizedFrameProcessor:
                 "misses": self.cache_misses,
                 "hit_rate": f"{(self.cache_hits / (self.cache_hits + self.cache_misses) * 100) if (self.cache_hits + self.cache_misses) > 0 else 0:.1f}%"
             },
-            "tracking_stats": tracking_stats
-            },
+            "tracking_stats": tracking_stats,
             "running": self.running
         }
 
