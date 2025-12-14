@@ -55,36 +55,34 @@ class RuleAction(str, Enum):
     ALERT = "alert"
     NOTIFICATION = "notification"
     WEBHOOK = "webhook"
+    EMAIL = "email"
 
 
 class RuleCreate(BaseModel):
-    """Rule creation request."""
+    """Rule creation request (VANTA-20)."""
     name: str = Field(..., description="Rule name")
-    description: str = Field(..., description="Rule description")
-    condition: str = Field(..., description="Rule condition expression")
+    type: str = Field(..., description="Rule type: threshold, trend, or duration")
+    condition_json: dict = Field(..., description="Rule configuration as JSON")
     action: RuleAction
-    priority: int = Field(default=0, ge=0, le=100)
     enabled: bool = True
 
 
 class RuleUpdate(BaseModel):
-    """Rule update request."""
+    """Rule update request (VANTA-20)."""
     name: Optional[str] = None
-    description: Optional[str] = None
-    condition: Optional[str] = None
+    type: Optional[str] = None
+    condition_json: Optional[dict] = None
     action: Optional[RuleAction] = None
-    priority: Optional[int] = Field(None, ge=0, le=100)
     enabled: Optional[bool] = None
 
 
 class RuleResponse(BaseModel):
-    """Rule response model."""
-    rule_id: str
+    """Rule response model (VANTA-20)."""
+    id: str
     name: str
-    description: str
-    condition: str
+    type: str
+    condition_json: dict
     action: RuleAction
-    priority: int
     enabled: bool
     created_at: datetime
     updated_at: datetime

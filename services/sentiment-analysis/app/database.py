@@ -21,13 +21,11 @@ class Rule(Base):
     
     __tablename__ = "rules"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    rule_id = Column(String(100), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    description = Column(String(1000))
-    condition = Column(String(1000), nullable=False)
-    action = Column(String(255), nullable=False)
-    priority = Column(Integer, default=0)
+    id = Column(String(36), primary_key=True)  # UUID as string
+    name = Column(String(200), nullable=False, unique=True)
+    type = Column(String(50), nullable=False, default='sentiment')
+    condition_json = Column(JSON, nullable=False)  # Store rule config as JSON
+    action = Column(String(100), nullable=False)
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
@@ -327,7 +325,7 @@ class DatabaseManager:
             async with self.get_session() as session:
                 from sqlalchemy import select
                 result = await session.execute(
-                    select(Rule).where(Rule.enabled == True).order_by(Rule.priority.desc())
+                    select(Rule).where(Rule.enabled == True).order_by(Rule.type)
                 )
                 rules = result.scalars().all()
                 return rules

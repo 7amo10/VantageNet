@@ -123,44 +123,46 @@ class RulesEngineV2:
         Parse database rule into Rule object.
         
         Args:
-            db_rule: Database rule record
+            db_rule: Database rule record with condition_json field
             
         Returns:
             Rule instance or None if parsing fails
         """
-        # Parse condition as rule type and config
-        # Expected format: "type:config_json" or just condition string
-        condition = db_rule.condition
-        
-        # Try to parse as "type:config" format
-        if ":" in condition:
-            rule_type, config_str = condition.split(":", 1)
+        try:
+            # Get config from condition_json (already parsed as dict by SQLAlchemy)
+            config = db_rule.condition_json
+            
+            if not isinstance(config, dict):
+                logger.error(f"Invalid config format for rule {db_rule.name}: expected dict")
+                return None
+            
+            # Extract rule type from config
+            rule_type = config.get("type")
+            if not rule_type:
+                logger.warning(f"No type specified in rule config for {db_rule.name}")
+                return None
+            
+            # Get rule class from registry
             rule_class = self.registry.get(rule_type)
-            
             if not rule_class:
-                logger.warning(f"Unknown rule type: {rule_type}")
+                logger.warning(f"Unknown rule type '{rule_type}' for rule {db_rule.name}")
                 return None
             
-            # Parse config (JSON-like format)
-            import json
-            try:
-                config = json.loads(config_str)
-            except json.JSONDecodeError:
-                logger.error(f"Invalid rule config JSON: {config_str}")
-                return None
+            # Extract rule parameters (remove 'type' and 'severity' as they're metadata)
+            rule_params = {k: v for k, v in config.items() if k not in ['type', 'severity']}
             
-            # Instantiate rule
+            # Instantiate rule with database ID and name
             return rule_class(
-                rule_id=db_rule.rule_id,
+                rule_id=db_rule.id,
                 name=db_rule.name,
                 enabled=db_rule.enabled,
-                priority=db_rule.priority,
-                **config
+                priority=0,  # Can add priority to config if needed
+                **rule_params
             )
-        
-        # Fallback: try to infer rule type from condition
-        logger.debug(f"Could not parse rule type from condition: {condition}")
-        return None
+            
+        except Exception as e:
+            logger.error(f"Error parsing rule {db_rule.name}: {e}", exc_info=True)
+            return None
     
     def _load_default_rules(self) -> None:
         """Load default rules for testing."""
