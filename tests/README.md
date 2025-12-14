@@ -3,7 +3,71 @@
 ## Overview
 This directory contains tests for the VantageNet emotion detection system:
 - **Unit Tests (VANTA-16):** Test individual components (YOLO, FER, pipeline)
-- **Integration Tests (VANTA-13):** Test complete E2E pipeline with services
+- **Integration Tests (VANTA-17):** Test complete E2E pipeline with all services
+
+---
+
+## Integration Tests (VANTA-17)
+
+### scripts/test_pipeline_integration.sh
+**Purpose:** End-to-end integration test validating the complete video → emotion pipeline.
+
+**Test Scenario:**
+1. Start Redis (must be running on localhost:6380)
+2. Start emotion detection service
+3. Start video ingestion service with test video
+4. Monitor Redis stream `emotion:results:*` for 60 seconds
+5. Validate metrics and generate report
+
+**Success Criteria:**
+- ✅ ≥1000 emotions detected
+- ✅ Average latency < 100ms
+- ✅ Memory usage < 2GB
+- ✅ No errors in logs
+
+**Usage:**
+```bash
+# Ensure Redis is running
+redis-cli -h localhost -p 6380 ping
+
+# Run integration test
+./scripts/test_pipeline_integration.sh
+
+# Check generated report
+ls -lh test_reports/integration_test_*.txt
+
+# View service logs
+tail -f logs/detection_*.log
+tail -f logs/ingestion_*.log
+```
+
+**Test Video:**
+- Location: `tests/fixtures/test_video.mp4`
+- Specs: 640x480, 30 FPS, 60 seconds
+- Auto-generated if missing (synthetic face animation)
+
+**Report Output:**
+```
+Test Results
+============
+Duration: 60.12 seconds
+Emotions Detected: 1543
+Unique Frames Processed: 1789
+
+Performance Metrics
+===================
+Average Latency: 87.34 ms
+Maximum Latency: 145.67 ms
+Average Memory: 1234.56 MB
+Maximum Memory: 1456.78 MB
+
+Acceptance Criteria Validation
+===============================
+✓ Emotions detected: 1543 (target: ≥1000) PASS
+✓ Avg latency: 87.34ms (target: <100ms) PASS
+✓ Memory usage: 1456.78MB (target: <2048MB) PASS
+✓ No errors: 0 errors PASS
+```
 
 ---
 

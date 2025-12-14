@@ -123,11 +123,85 @@ async def root():
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=True,
-        log_config=None  # Use our custom logging
-    )
+    
+    parser = argparse.ArgumentParser(description='Video Ingestion Service')
+    parser.add_argument('--camera-id', type=str, help='Camera ID for test mode')
+    parser.add_argument('--source', type=str, help='Video source path for test mode')
+    parser.add_argument('--fps', type=int, default=30, help='Target FPS for test mode')
+    
+    args = parser.parse_args()
+    
+    # If test mode (camera-id and source provided), run in CLI mode
+    if args.camera_id and args.source:
+        logger.info(f"Running in CLI test mode: camera_id={args.camera_id}, source={args.source}")
+        
+        async def run_test_ingestion():
+            """Run video ingestion in test mode"""
+            from app.video_capture import VideoCapture
+            from app.models import CameraSourceType
+            
+            # Connect to Redis
+            await redis_client.connect()
+            logger.info("Connected to Redis")
+            
+            # Determine source type based on file extension
+            if args.source.endswith(('.mp4', '.avi', '.mov')):
+                source_type = CameraSourceType.FILE
+            elif args.source.startswith('rtsp://'):
+                source_type = CameraSourceType.RTSP
+            else:
+                source_type = CameraSourceType.WEBCAM
+            
+            # Create video capture
+            capture = VideoCapture(
+                camera_id=args.camera_id,
+                name=f"Test Camera {args.camera_id}",
+                source_type=source_type,
+                source_url=args.source,
+                fps=args.fps,
+                loop=False  # Don't loop video files in test mode
+            )
+            
+            # Start processing
+            await capture.start()
+            logger.info(f"Started ingestion from {args.source}")
+            
+            # Wait for capture to become active
+            from app.models import CameraStatus
+            for _ in range(10):
+                if capture.status == CameraStatus.ACTIVE:
+                    break
+                await asyncio.sleep(0.5)
+            
+            if capture.status != CameraStatus.ACTIVE:
+                logger.error("Camera failed to start")
+                return
+            
+            logger.info(f"Camera active, processing video...")
+            
+            try:
+                # Keep running until video ends or interrupted
+                while capture.status == CameraStatus.ACTIVE:
+                    await asyncio.sleep(1)
+                    logger.info(f"Frames processed: {capture.frame_count}, dropped: {capture.frames_dropped}")
+                logger.info(f"Video processing completed. Final status: {capture.status}")
+            except KeyboardInterrupt:
+                logger.info("Interrupted by user")
+            finally:
+                await capture.stop()
+                await redis_client.disconnect()
+                logger.info("Stopped ingestion")
+        
+        # Run async test mode
+        asyncio.run(run_test_ingestion())
+    else:
+        # Run as FastAPI service
+        uvicorn.run(
+            "app.main:app",
+            host=settings.host,
+            port=settings.port,
+            reload=True,
+            log_config=None  # Use our custom logging
+        )

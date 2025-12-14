@@ -23,7 +23,8 @@ class VideoCapture:
         source_type: CameraSourceType,
         source_url: str,
         fps: int = 10,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        loop: bool = True
     ):
         self.camera_id = camera_id
         self.name = name
@@ -31,6 +32,7 @@ class VideoCapture:
         self.source_url = source_url
         self.target_fps = fps
         self.metadata = metadata or {}
+        self.loop = loop  # Whether to loop video files
         
         self.cap: Optional[cv2.VideoCapture] = None
         self.status = CameraStatus.INACTIVE
@@ -187,6 +189,12 @@ class VideoCapture:
                 ret, frame = self.cap.read()
                 
                 if not ret or frame is None:
+                    # End of video file
+                    if self.source_type == CameraSourceType.FILE and not self.loop:
+                        logger.info(f"Video file completed for camera {self.camera_id}")
+                        self.status = CameraStatus.INACTIVE
+                        break
+                    
                     logger.warning(f"Failed to read frame from camera {self.camera_id}")
                     self.frames_dropped += 1
                     self._release_capture()
