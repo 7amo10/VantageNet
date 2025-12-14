@@ -8,7 +8,7 @@ from datetime import datetime
 import redis.asyncio as aioredis
 
 from .config import settings
-from .models import SentimentResult
+from .models import SentimentResult, CrowdSentiment
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,66 @@ class RedisPublisher:
         if self.redis_client:
             await self.redis_client.close()
             logger.info("Redis publisher disconnected")
+    
+    async def publish_crowd_sentiment(self, sentiment: CrowdSentiment) -> bool:
+        """
+        Publish crowd sentiment to Redis stream (VANTA-18).
+        
+        Args:
+            sentiment: Crowd sentiment to publish
+            
+        Returns:
+            bool: True if published successfully
+        """
+        if not self.redis_client:
+            raise RuntimeError("Redis publisher not connected")
+        
+        try:
+            # Convert emotion distribution to dict
+            emotion_dist_dict = {
+                emotion: {
+                    "count": stats.count,
+                    "avg_confidence": stats.avg_confidence,
+                    "percentage": stats.percentage
+                }
+                for emotion, stats in sentiment.emotion_distribution.items()
+            }
+            
+            # Convert sentiment to dict for Redis
+            sentiment_dict = {
+                "timestamp": sentiment.timestamp.isoformat(),
+                "camera_id": sentiment.camera_id,
+                "total_faces_observed": str(sentiment.total_faces_observed),
+                "emotion_distribution": json.dumps(emotion_dist_dict),
+                "dominant_emotion": sentiment.dominant_emotion or "",
+                "mood_score": str(sentiment.mood_score),
+                "trend": sentiment.trend,
+                "trend_magnitude": str(sentiment.trend_magnitude) if sentiment.trend_magnitude is not None else ""
+            }
+            
+            # Publish to camera-specific stream
+            stream_name = f"sentiment:crowd:{sentiment.camera_id}"
+            
+            message_id = await self.redis_client.xadd(
+                name=stream_name,
+                fields=sentiment_dict,
+                maxlen=10000  # Keep last 10k messages
+            )
+            
+            self._published_count += 1
+            
+            logger.info(
+                f"Published crowd sentiment to '{stream_name}': "
+                f"id={message_id}, faces={sentiment.total_faces_observed}, "
+                f"dominant={sentiment.dominant_emotion}, mood={sentiment.mood_score:.2f}, "
+                f"trend={sentiment.trend}"
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error publishing crowd sentiment: {e}")
+            return False
     
     async def publish_sentiment(self, sentiment: SentimentResult) -> bool:
         """
