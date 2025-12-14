@@ -334,3 +334,37 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error fetching rules: {e}")
             return []
+    
+    async def save_alert(self, alert_data) -> bool:
+        """
+        Save alert to database (VANTA-19).
+        
+        Args:
+            alert_data: Alert object from rules.py
+            
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            async with self.get_session() as session:
+                # Extract relevant fields from sentiment_snapshot
+                sentiment_score = alert_data.sentiment_snapshot.get("mood_score")
+                dominant_emotion = alert_data.sentiment_snapshot.get("dominant_emotion")
+                
+                alert = Alert(
+                    timestamp=alert_data.timestamp,
+                    rule_id=alert_data.rule_id,
+                    rule_name=alert_data.rule_name,
+                    sentiment_score=sentiment_score,
+                    dominant_emotion=dominant_emotion,
+                    message=alert_data.message,
+                    acknowledged=False
+                )
+                session.add(alert)
+            
+            logger.debug(f"Saved alert: {alert_data.rule_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving alert: {e}")
+            return False
