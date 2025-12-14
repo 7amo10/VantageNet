@@ -1,6 +1,6 @@
 """PostgreSQL database connection and management."""
 import logging
-from typing import Optional
+from typing import Optional, List
 from contextlib import asynccontextmanager
 
 from sqlalchemy import create_engine, text, Column, Integer, String, Float, Boolean, DateTime, JSON
@@ -48,6 +48,29 @@ class SentimentHistory(Base):
     dominant_emotion = Column(String(50))
     sentiment_score = Column(Float)
     confidence = Column(Float)
+
+
+class SentimentStats(Base):
+    """Sentiment statistics table (VANTA-18)."""
+    
+    __tablename__ = "sentiment_stats"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    camera_id = Column(String(100), nullable=False, index=True)
+    total_faces_observed = Column(Integer, nullable=False)
+    emotion_distribution = Column(JSON, nullable=False)
+    dominant_emotion = Column(String(50))
+    mood_score = Column(Float, nullable=False)
+    trend = Column(String(20))
+    trend_magnitude = Column(Float)
+    
+    class Config:
+        """SQLAlchemy config."""
+        
+        indexes = [
+            ("timestamp", "camera_id")
+        ]
 
 
 class Alert(Base):
@@ -201,6 +224,92 @@ class DatabaseManager:
                 session.add(history)
             
             logger.debug("Saved sentiment to history")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving sentiment: {e}")
+            return False
+    
+    async def save_crowd_sentiment(self, crowd_sentiment) -> bool:
+        """
+        Save crowd sentiment to sentiment_stats table (VANTA-18).
+        
+        Args:
+            crowd_sentiment: CrowdSentiment model
+            
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            # Convert emotion distribution to dict
+            emotion_dist_dict = {
+                emotion: {
+                    "count": stats.count,
+                    "avg_confidence": stats.avg_confidence,
+                    "percentage": stats.percentage
+                }
+                for emotion, stats in crowd_sentiment.emotion_distribution.items()
+            }
+            
+            async with self.get_session() as session:
+                stats = SentimentStats(
+                    timestamp=crowd_sentiment.timestamp,
+                    camera_id=crowd_sentiment.camera_id,
+                    total_faces_observed=crowd_sentiment.total_faces_observed,
+                    emotion_distribution=emotion_dist_dict,
+                    dominant_emotion=crowd_sentiment.dominant_emotion,
+                    mood_score=crowd_sentiment.mood_score,
+                    trend=crowd_sentiment.trend,
+                    trend_magnitude=crowd_sentiment.trend_magnitude
+                )
+                session.add(stats)
+            
+            logger.debug(f"Saved crowd sentiment for camera {crowd_sentiment.camera_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving crowd sentiment: {e}")
+            return False
+    
+    async def batch_save_crowd_sentiments(self, sentiments: List) -> bool:
+        """
+        Batch save multiple crowd sentiments (VANTA-18).
+        
+        Args:
+            sentiments: List of CrowdSentiment models
+            
+        Returns:
+            bool: True if all saved successfully
+        """
+        if not sentiments:
+            return True
+        
+        try:
+            async with self.get_session() as session:
+                for crowd_sentiment in sentiments:
+                    # Convert emotion distribution
+                    emotion_dist_dict = {
+                        emotion: {
+                            "count": stats.count,
+                            "avg_confidence": stats.avg_confidence,
+                            "percentage": stats.percentage
+                        }
+                        for emotion, stats in crowd_sentiment.emotion_distribution.items()
+                    }
+                    
+                    stats = SentimentStats(
+                        timestamp=crowd_sentiment.timestamp,
+                        camera_id=crowd_sentiment.camera_id,
+                        total_faces_observed=crowd_sentiment.total_faces_observed,
+                        emotion_distribution=emotion_dist_dict,
+                        dominant_emotion=crowd_sentiment.dominant_emotion,
+                        mood_score=crowd_sentiment.mood_score,
+                        trend=crowd_sentiment.trend,
+                        trend_magnitude=crowd_sentiment.trend_magnitude
+                    )
+                    session.add(stats)
+            
+            logger.info(f"Batch saved {len(sentiments)} crowd sentiments")
             return True
             
         except Exception as e:

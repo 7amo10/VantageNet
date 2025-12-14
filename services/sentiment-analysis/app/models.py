@@ -1,7 +1,75 @@
 """Pydantic models for Sentiment Analysis Service."""
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal
 from pydantic import BaseModel, Field
+
+
+class EmotionStats(BaseModel):
+    """Statistics for a single emotion type."""
+    
+    count: int = Field(..., description="Number of occurrences")
+    avg_confidence: float = Field(..., ge=0.0, le=1.0, description="Average confidence")
+    percentage: float = Field(..., ge=0.0, le=100.0, description="Percentage of total")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "count": 28,
+                "avg_confidence": 0.88,
+                "percentage": 66.7
+            }
+        }
+
+
+class CrowdSentiment(BaseModel):
+    """Crowd-level emotion aggregation result (VANTA-18)."""
+    
+    timestamp: datetime = Field(..., description="Timestamp of aggregation")
+    camera_id: str = Field(..., description="Camera identifier")
+    total_faces_observed: int = Field(..., ge=0, description="Total faces in window")
+    emotion_distribution: Dict[str, EmotionStats] = Field(
+        ...,
+        description="Distribution of emotions with statistics"
+    )
+    dominant_emotion: Optional[str] = Field(
+        None,
+        description="Most prevalent emotion (highest count)"
+    )
+    mood_score: float = Field(
+        ...,
+        ge=-1.0,
+        le=1.0,
+        description="Mood score: (happiness_count - anger_count) / total_faces"
+    )
+    trend: Literal["improving", "stable", "declining"] = Field(
+        ...,
+        description="Mood trend compared to previous window"
+    )
+    trend_magnitude: Optional[float] = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Magnitude of mood change (0.0 to 1.0)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "timestamp": "2025-01-15T14:23:45.123Z",
+                "camera_id": "cam_0",
+                "total_faces_observed": 42,
+                "emotion_distribution": {
+                    "happy": {"count": 28, "avg_confidence": 0.88, "percentage": 66.7},
+                    "neutral": {"count": 10, "avg_confidence": 0.75, "percentage": 23.8},
+                    "sad": {"count": 3, "avg_confidence": 0.82, "percentage": 7.1},
+                    "angry": {"count": 1, "avg_confidence": 0.61, "percentage": 2.4}
+                },
+                "dominant_emotion": "happy",
+                "mood_score": 0.73,
+                "trend": "improving",
+                "trend_magnitude": 0.15
+            }
+        }
 
 
 class EmotionData(BaseModel):

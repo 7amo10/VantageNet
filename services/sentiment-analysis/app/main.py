@@ -12,8 +12,7 @@ from .models import HealthResponse, DatabaseStatus, RedisStatus
 from .database import DatabaseManager
 from .redis_consumer import RedisConsumer
 from .redis_publisher import RedisPublisher
-from .aggregator import EmotionAggregator
-from .rules_engine import RulesEngine
+from .crowd_processor import CrowdSentimentProcessor
 
 # Configure logging
 logging.basicConfig(
@@ -26,74 +25,22 @@ logger = logging.getLogger(__name__)
 db_manager: DatabaseManager = None
 redis_consumer: RedisConsumer = None
 redis_publisher: RedisPublisher = None
-aggregator: EmotionAggregator = None
-rules_engine: RulesEngine = None
-processor_task: asyncio.Task = None
+crowd_processor: CrowdSentimentProcessor = None
 start_time: datetime = None
-
-# Metrics
-emotions_processed = 0
-sentiments_published = 0
-
-
-async def sentiment_processor():
-    """Background task for processing emotions and generating sentiment."""
-    global emotions_processed, sentiments_published
-    
-    logger.info("Starting sentiment processor...")
-    
-    try:
-        async for emotion_data in redis_consumer.read_emotions():
-            emotions_processed += 1
-            
-            # Add to aggregator
-            aggregator.add_emotion(emotion_data)
-            
-            logger.debug(
-                f"Processed emotion from {emotion_data.camera_id}, "
-                f"total processed: {emotions_processed}"
-            )
-            
-            # Check if we can aggregate
-            if aggregator.can_aggregate():
-                sentiment = aggregator.aggregate()
-                
-                if sentiment:
-                    # Publish sentiment
-                    published = await redis_publisher.publish_sentiment(sentiment)
-                    if published:
-                        sentiments_published += 1
-                    
-                    # Save to database
-                    await db_manager.save_sentiment(sentiment)
-                    
-                    # Evaluate rules
-                    triggered_rules = await rules_engine.evaluate(sentiment)
-                    if triggered_rules:
-                        logger.info(
-                            f"Sentiment triggered {len(triggered_rules)} rule(s): "
-                            f"{[r.name for r in triggered_rules]}"
-                        )
-    
-    except asyncio.CancelledError:
-        logger.info("Sentiment processor cancelled")
-    except Exception as e:
-        logger.error(f"Error in sentiment processor: {e}", exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application lifespan manager for startup and shutdown.
+    Application lifespan manager for startup and shutdown (VANTA-18).
     
     Handles:
     - Database connection
     - Redis consumer/publisher initialization
-    - Aggregator and rules engine setup
-    - Background processor task
+    - Crowd sentiment processor setup
     """
     global db_manager, redis_consumer, redis_publisher
-    global aggregator, rules_engine, processor_task, start_time
+    global crowd_processor, start_time
     
     # Startup
     logger.info(f"Starting {settings.service_name} v{settings.service_version}")
@@ -114,18 +61,16 @@ async def lifespan(app: FastAPI):
         await redis_publisher.connect()
         logger.info("Redis publisher initialized")
         
-        # Initialize aggregator
-        aggregator = EmotionAggregator()
-        logger.info("Emotion aggregator initialized")
-        
-        # Initialize rules engine
-        rules_engine = RulesEngine()
-        await rules_engine.load_rules_from_database(db_manager)
-        logger.info("Rules engine initialized")
-        
-        # Start background processor
-        processor_task = asyncio.create_task(sentiment_processor())
-        logger.info("Background sentiment processor started")
+        # Initialize crowd sentiment processor (VANTA-18)
+        crowd_processor = CrowdSentimentProcessor(
+            redis_consumer=redis_consumer,
+            redis_publisher=redis_publisher,
+            db_manager=db_manager,
+            window_seconds=30,  # 30s sliding window
+            publish_interval=30  # Publish every 30s
+        )
+        await crowd_processor.start()
+        logger.info("Crowd sentiment processor initialized and started")
         
         logger.info(
             f"Sentiment Analysis Service started successfully on port {settings.port}"
@@ -138,12 +83,8 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down Sentiment Analysis Service...")
         
         # Stop processor
-        if processor_task:
-            processor_task.cancel()
-            try:
-                await processor_task
-            except asyncio.CancelledError:
-                pass
+        if crowd_processor:
+            await crowd_processor.stop()
         
         # Disconnect components
         if redis_consumer:
@@ -181,10 +122,10 @@ async def root():
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health():
     """
-    Health check endpoint with detailed component status.
+    Health check endpoint with detailed component status (VANTA-18).
     
     Returns service health, database and Redis connection status,
-    and processing metrics.
+    and crowd sentiment processing metrics.
     """
     # Get database status
     db_status = await db_manager.get_status() if db_manager else {
@@ -207,11 +148,8 @@ async def health():
     process = psutil.Process()
     memory_mb = process.memory_info().rss / 1024 / 1024
     
-    # Get aggregator stats
-    aggregator_stats = aggregator.get_buffer_stats() if aggregator else {}
-    
-    # Get rules engine stats
-    rules_stats = rules_engine.get_stats() if rules_engine else {}
+    # Get processor metrics
+    processor_metrics = crowd_processor.get_metrics() if crowd_processor else {}
     
     # Determine overall health status
     overall_status = "healthy" if (
@@ -226,24 +164,7 @@ async def health():
         database=database_status,
         redis=redis_status_model,
         metrics={
-            "emotions_processed": emotions_processed,
-            "sentiments_published": sentiments_published,
             "uptime_seconds": int(uptime_seconds),
             "memory_usage_mb": round(memory_mb, 2),
-            "aggregator": aggregator_stats,
-            "rules": rules_stats
-        }
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=False,
-        log_level=settings.log_level.lower()
-    )
+            **processor_metrics
 
