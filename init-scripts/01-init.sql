@@ -223,11 +223,56 @@ VALUES
     (uuid_generate_v4(), 'Test Camera 1', 'rtsp://localhost:8554/test1', 'Main Entrance', TRUE)
 ON CONFLICT (name) DO NOTHING;
 
--- Insert default rule for testing
+-- ============================================
+-- SAMPLE RULES (VANTA-20)
+-- Demonstrates ThresholdRule, TrendRule, DurationRule
+-- ============================================
+
+-- ThresholdRule: High happiness detected
 INSERT INTO rules (name, type, condition_json, action, enabled)
 VALUES 
-    ('High Negative Sentiment Alert', 'sentiment', 
-     '{"metric": "sentiment_score", "operator": "<", "threshold": -0.5}'::jsonb,
+    ('High Happiness Threshold', 'threshold', 
+     '{"type": "threshold", "emotion": "happy", "threshold": 0.8, "action": "send_alert", "severity": "info"}'::jsonb,
+     'alert', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- ThresholdRule: High anger detected
+INSERT INTO rules (name, type, condition_json, action, enabled)
+VALUES 
+    ('High Anger Threshold', 'threshold', 
+     '{"type": "threshold", "emotion": "angry", "threshold": 0.6, "action": "send_alert", "severity": "warning"}'::jsonb,
+     'alert', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- TrendRule: Declining mood alert
+INSERT INTO rules (name, type, condition_json, action, enabled)
+VALUES 
+    ('Declining Mood Alert', 'trend', 
+     '{"type": "trend", "direction": "declining", "min_magnitude": 0.25, "action": "send_alert", "severity": "warning"}'::jsonb,
+     'alert', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- TrendRule: Improving mood notification
+INSERT INTO rules (name, type, condition_json, action, enabled)
+VALUES 
+    ('Improving Mood Notification', 'trend', 
+     '{"type": "trend", "direction": "improving", "min_magnitude": 0.2, "action": "log", "severity": "info"}'::jsonb,
+     'log', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- DurationRule: Sustained anger alert
+INSERT INTO rules (name, type, condition_json, action, enabled)
+VALUES 
+    ('Sustained Anger Alert', 'duration', 
+     '{"type": "duration", "emotion": "angry", "threshold": 0.5, "duration_seconds": 60, "action": "send_alert", "severity": "critical"}'::jsonb,
+     'alert', TRUE)
+ON CONFLICT (name) DO NOTHING;
+
+-- DurationRule: Prolonged sadness alert
+INSERT INTO rules (name, type, condition_json, action, enabled)
+VALUES 
+    ('Prolonged Sadness Alert', 'duration', 
+     '{"type": "duration", "emotion": "sad", "threshold": 0.4, "duration_seconds": 120, "action": "send_alert", "severity": "warning"}'::jsonb,
      'alert', TRUE)
 ON CONFLICT (name) DO NOTHING;
 
