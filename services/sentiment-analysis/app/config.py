@@ -48,6 +48,38 @@ class Settings(BaseSettings):
         description="Path to rules configuration file"
     )
     
+    # Notification Configuration (VANTA-21)
+    slack_webhook_url: str | None = Field(
+        default=None,
+        env="SLACK_WEBHOOK_URL",
+        description="Slack webhook URL for alert notifications"
+    )
+    webhook_endpoint: str | None = Field(
+        default=None,
+        env="WEBHOOK_ENDPOINT",
+        description="Generic webhook endpoint for alert notifications"
+    )
+    smtp_enabled: bool = Field(
+        default=False,
+        env="SMTP_ENABLED",
+        description="Enable email notifications via SMTP"
+    )
+    smtp_host: str = Field(
+        default="localhost",
+        env="SMTP_HOST",
+        description="SMTP server host"
+    )
+    smtp_port: int = Field(
+        default=25,
+        env="SMTP_PORT",
+        description="SMTP server port"
+    )
+    notification_rate_limit_seconds: int = Field(
+        default=300,
+        env="NOTIFICATION_RATE_LIMIT_SECONDS",
+        description="Rate limit window for duplicate alerts (seconds)"
+    )
+    
     # Performance
     max_memory_mb: int = 256
     

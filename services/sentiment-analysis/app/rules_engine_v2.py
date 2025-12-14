@@ -1,12 +1,16 @@
 """Rules engine with registry and evaluation pipeline for VANTA-19."""
 import logging
 import time
+import json
 from typing import Dict, List, Optional, Type
 from datetime import datetime
+import aioredis
 
 from .rules import Rule, Alert, ThresholdRule, TrendRule, DurationRule
 from .models import CrowdSentiment
 from .database import DatabaseManager
+from .notifications import AlertNotifier
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +84,12 @@ class RulesEngineV2:
         # Alert queue (in-memory backup if DB fails)
         self._alert_queue: List[Alert] = []
         self._max_queue_size = 1000
+        
+        # VANTA-21: Notification service
+        self.notifier = AlertNotifier()
+        
+        # VANTA-21: Redis client for streams (initialized lazily)
+        self._redis_client = None
     
     async def load_rules(self) -> None:
         """
@@ -326,7 +336,7 @@ class RulesEngineV2:
     
     async def publish_alerts(self, alerts: List[Alert]) -> bool:
         """
-        Publish alerts to notification service (placeholder).
+        Publish alerts to Redis stream and notification service (VANTA-21).
         
         Args:
             alerts: Alerts to publish
@@ -334,15 +344,63 @@ class RulesEngineV2:
         Returns:
             True if published successfully
         """
-        # TODO: Implement Redis stream publishing in future sprint
-        for alert in alerts:
-            logger.info(
-                f"[PUBLISH] Alert: {alert.rule_name} | "
-                f"Camera: {alert.camera_id} | "
-                f"Severity: {alert.severity}"
-            )
+        if not alerts:
+            return True
         
-        return True
+        success = True
+        
+        # 1. Publish to Redis stream
+        try:
+            redis_client = await self._get_redis_client()
+            
+            for alert in alerts:
+                # Convert alert to dict
+                alert_data = alert.to_dict()
+                
+                # Publish to alerts:events stream
+                await redis_client.xadd(
+                    "alerts:events",
+                    alert_data
+                )
+                
+                logger.debug(f"Published alert to Redis stream: {alert.rule_name}")
+        
+        except Exception as e:
+            logger.error(f"Failed to publish alerts to Redis: {e}")
+            success = False
+        
+        # 2. Send notifications
+        try:
+            for alert in alerts:
+                results = await self.notifier.send_notification(alert)
+                
+                # Log notification results
+                success_channels = [ch for ch, ok in results.items() if ok]
+                logger.info(
+                    f"Alert notifications sent: {alert.rule_name} | "
+                    f"Channels: {', '.join(success_channels)}"
+                )
+        
+        except Exception as e:
+            logger.error(f"Failed to send alert notifications: {e}")
+            success = False
+        
+        return success
+    
+    async def _get_redis_client(self):
+        """Get or create Redis client connection."""
+        if not self._redis_client:
+            self._redis_client = await aioredis.create_redis_pool(
+                f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
+            )
+        return self._redis_client
+    
+    async def close(self):
+        """Close Redis connection."""
+        if self._redis_client:
+            self._redis_client.close()
+            await self._redis_client.wait_closed()
+            logger.info("Redis connection closed")
     
     async def reload_rules(self) -> None:
         """Reload rules from database (event-driven)."""
