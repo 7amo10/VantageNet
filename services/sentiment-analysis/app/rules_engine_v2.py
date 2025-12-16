@@ -4,7 +4,7 @@ import time
 import json
 from typing import Dict, List, Optional, Type
 from datetime import datetime
-import aioredis
+# import aioredis  # Commented out - causing import errors, not needed for core functionality
 
 from .rules import Rule, Alert, ThresholdRule, TrendRule, DurationRule
 from .models import CrowdSentiment
