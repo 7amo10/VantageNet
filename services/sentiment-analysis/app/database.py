@@ -2,8 +2,11 @@
 import logging
 from typing import Optional, List
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+import uuid
 
-from sqlalchemy import create_engine, text, Column, Integer, String, Float, Boolean, DateTime, JSON
+from sqlalchemy import create_engine, text, Column, Integer, String, Float, Boolean, DateTime, JSON, Text, select, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool
@@ -21,7 +24,7 @@ class Rule(Base):
     
     __tablename__ = "rules"
     
-    id = Column(String(36), primary_key=True)  # UUID as string
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(200), nullable=False, unique=True)
     type = Column(String(50), nullable=False, default='sentiment')
     condition_json = Column(JSON, nullable=False)  # Store rule config as JSON
@@ -72,19 +75,39 @@ class SentimentStats(Base):
 
 
 class Alert(Base):
-    """Triggered alerts from rules engine."""
+    """Triggered alerts from rules engine (VANTA-22 Enhanced)."""
     
     __tablename__ = "alerts"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
-    rule_id = Column(String(100), nullable=False)
-    rule_name = Column(String(255))
-    sentiment_score = Column(Float)
-    dominant_emotion = Column(String(50))
-    message = Column(String(1000))
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    rule_id = Column(UUID(as_uuid=False), nullable=False, index=True)
+    camera_id = Column(UUID(as_uuid=False), index=True)
+    alert_type = Column(String(50), nullable=False, default='rule_trigger')
+    emotion = Column(String(50), index=True)
+    message = Column(Text, nullable=False)
+    severity = Column(String(20), nullable=False, index=True)
+    triggered_at = Column(DateTime, nullable=False, index=True)
+    resolved_at = Column(DateTime)
+    action_taken = Column(String(200))
+    metadata_json = Column(JSON)
     acknowledged = Column(Boolean, default=False)
+    acknowledged_by = Column(String(100))
     acknowledged_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AlertMetric(Base):
+    """Hourly aggregated alert metrics for analytics (VANTA-22)."""
+    
+    __tablename__ = "alert_metrics"
+    
+    id = Column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    hour = Column(DateTime, nullable=False, index=True)
+    camera_id = Column(UUID(as_uuid=False), nullable=False, index=True)
+    alert_count = Column(Integer, default=0)
+    severity_breakdown = Column(JSON, nullable=False)
+    top_emotion = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class DatabaseManager:
@@ -335,7 +358,7 @@ class DatabaseManager:
     
     async def save_alert(self, alert_data) -> bool:
         """
-        Save alert to database (VANTA-19).
+        Save alert to database (VANTA-19, Enhanced for VANTA-22).
         
         Args:
             alert_data: Alert object from rules.py
@@ -345,17 +368,25 @@ class DatabaseManager:
         """
         try:
             async with self.get_session() as session:
+                # Generate UUID for alert
+                import uuid
+                alert_id = str(uuid.uuid4())
+                
                 # Extract relevant fields from sentiment_snapshot
-                sentiment_score = alert_data.sentiment_snapshot.get("mood_score")
-                dominant_emotion = alert_data.sentiment_snapshot.get("dominant_emotion")
+                emotion = alert_data.sentiment_snapshot.get("dominant_emotion")
                 
                 alert = Alert(
-                    timestamp=alert_data.timestamp,
-                    rule_id=alert_data.rule_id,
-                    rule_name=alert_data.rule_name,
-                    sentiment_score=sentiment_score,
-                    dominant_emotion=dominant_emotion,
+                    id=alert_id,
+                    rule_id=str(alert_data.rule_id),
+                    camera_id=str(alert_data.camera_id) if alert_data.camera_id else None,
+                    alert_type='rule_trigger',
+                    emotion=emotion,
                     message=alert_data.message,
+                    severity=alert_data.severity,
+                    triggered_at=alert_data.timestamp,
+                    resolved_at=None,
+                    action_taken=None,
+                    metadata_json=alert_data.sentiment_snapshot,
                     acknowledged=False
                 )
                 session.add(alert)
@@ -365,4 +396,251 @@ class DatabaseManager:
             
         except Exception as e:
             logger.error(f"Error saving alert: {e}")
+            return False
+    
+    async def get_alerts(
+        self, 
+        camera_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        severity: Optional[str] = None,
+        limit: int = 100
+    ) -> List[dict]:
+        """
+        Get alerts within time range (VANTA-22).
+        
+        Args:
+            camera_id: Filter by camera ID
+            start_time: Start of time range
+            end_time: End of time range
+            severity: Filter by severity (info, warning, critical)
+            limit: Maximum number of results
+            
+        Returns:
+            List of alert dictionaries
+        """
+        try:
+            async with self.get_session() as session:
+                query = select(Alert).order_by(Alert.triggered_at.desc())
+                
+                if camera_id:
+                    query = query.where(Alert.camera_id == camera_id)
+                if start_time:
+                    query = query.where(Alert.triggered_at >= start_time)
+                if end_time:
+                    query = query.where(Alert.triggered_at <= end_time)
+                if severity:
+                    query = query.where(Alert.severity == severity)
+                
+                query = query.limit(limit)
+                
+                result = await session.execute(query)
+                alerts = result.scalars().all()
+                
+                return [
+                    {
+                        "id": alert.id,
+                        "rule_id": alert.rule_id,
+                        "camera_id": alert.camera_id,
+                        "alert_type": alert.alert_type,
+                        "emotion": alert.emotion,
+                        "message": alert.message,
+                        "severity": alert.severity,
+                        "triggered_at": alert.triggered_at.isoformat() if alert.triggered_at else None,
+                        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+                        "metadata": alert.metadata_json
+                    }
+                    for alert in alerts
+                ]
+        except Exception as e:
+            logger.error(f"Error fetching alerts: {e}")
+            return []
+    
+    async def get_severity_distribution(
+        self, 
+        camera_id: Optional[str] = None,
+        period_hours: int = 24
+    ) -> dict:
+        """
+        Get alert count distribution by severity (VANTA-22).
+        
+        Args:
+            camera_id: Filter by camera ID
+            period_hours: Time period in hours (default 24h)
+            
+        Returns:
+            Dict with severity counts
+        """
+        try:
+            async with self.get_session() as session:
+                start_time = datetime.utcnow() - timedelta(hours=period_hours)
+                
+                query = select(
+                    Alert.severity,
+                    func.count(Alert.id).label('count')
+                ).where(
+                    Alert.triggered_at >= start_time
+                ).group_by(Alert.severity)
+                
+                if camera_id:
+                    query = query.where(Alert.camera_id == camera_id)
+                
+                result = await session.execute(query)
+                rows = result.all()
+                
+                distribution = {
+                    "info": 0,
+                    "warning": 0,
+                    "critical": 0,
+                    "total": 0
+                }
+                
+                for severity, count in rows:
+                    distribution[severity] = count
+                    distribution["total"] += count
+                
+                return distribution
+        except Exception as e:
+            logger.error(f"Error getting severity distribution: {e}")
+            return {"info": 0, "warning": 0, "critical": 0, "total": 0}
+    
+    async def get_top_rules(
+        self,
+        camera_id: Optional[str] = None,
+        limit: int = 5,
+        period_hours: int = 24
+    ) -> List[dict]:
+        """
+        Get most frequently triggered rules (VANTA-22).
+        
+        Args:
+            camera_id: Filter by camera ID
+            limit: Maximum number of rules to return
+            period_hours: Time period in hours (default 24h)
+            
+        Returns:
+            List of rules with trigger counts
+        """
+        try:
+            async with self.get_session() as session:
+                start_time = datetime.utcnow() - timedelta(hours=period_hours)
+                
+                query = select(
+                    Alert.rule_id,
+                    func.count(Alert.id).label('trigger_count')
+                ).where(
+                    Alert.triggered_at >= start_time
+                ).group_by(
+                    Alert.rule_id
+                ).order_by(
+                    func.count(Alert.id).desc()
+                ).limit(limit)
+                
+                if camera_id:
+                    query = query.where(Alert.camera_id == camera_id)
+                
+                result = await session.execute(query)
+                rows = result.all()
+                
+                return [
+                    {
+                        "rule_id": rule_id,
+                        "trigger_count": count
+                    }
+                    for rule_id, count in rows
+                ]
+        except Exception as e:
+            logger.error(f"Error getting top rules: {e}")
+            return []
+    
+    async def get_emotion_triggers(
+        self,
+        camera_id: Optional[str] = None,
+        period_hours: int = 24
+    ) -> dict:
+        """
+        Get emotion-to-alert correlation (VANTA-22).
+        
+        Args:
+            camera_id: Filter by camera ID
+            period_hours: Time period in hours (default 24h)
+            
+        Returns:
+            Dict mapping emotions to alert counts
+        """
+        try:
+            async with self.get_session() as session:
+                start_time = datetime.utcnow() - timedelta(hours=period_hours)
+                
+                query = select(
+                    Alert.emotion,
+                    func.count(Alert.id).label('count')
+                ).where(
+                    Alert.triggered_at >= start_time,
+                    Alert.emotion.isnot(None)
+                ).group_by(
+                    Alert.emotion
+                ).order_by(
+                    func.count(Alert.id).desc()
+                )
+                
+                if camera_id:
+                    query = query.where(Alert.camera_id == camera_id)
+                
+                result = await session.execute(query)
+                rows = result.all()
+                
+                return {
+                    emotion: count
+                    for emotion, count in rows
+                }
+        except Exception as e:
+            logger.error(f"Error getting emotion triggers: {e}")
+            return {}
+    
+    async def cleanup_old_alerts(self, days: int = 30) -> int:
+        """
+        Delete alerts older than specified days (VANTA-22).
+        
+        Args:
+            days: Number of days to retain (default 30)
+            
+        Returns:
+            Number of deleted alerts
+        """
+        try:
+            async with self.get_session() as session:
+                cutoff_date = datetime.utcnow() - timedelta(days=days)
+                
+                # Use PostgreSQL function for efficient cleanup
+                query = text("SELECT cleanup_old_alerts()")
+                result = await session.execute(query)
+                deleted_count = result.scalar()
+                
+                logger.info(f"Deleted {deleted_count} alerts older than {days} days")
+                return deleted_count
+        except Exception as e:
+            logger.error(f"Error cleaning up old alerts: {e}")
+            return 0
+    
+    async def aggregate_alert_metrics(self, hour: datetime) -> bool:
+        """
+        Aggregate alerts for a specific hour into metrics table (VANTA-22).
+        
+        Args:
+            hour: Hour to aggregate (will be truncated to hour)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            async with self.get_session() as session:
+                # Use PostgreSQL function for efficient aggregation
+                query = text("SELECT aggregate_alert_metrics(:target_hour)")
+                await session.execute(query, {"target_hour": hour})
+                
+                logger.debug(f"Aggregated alert metrics for {hour}")
+                return True
+        except Exception as e:
+            logger.error(f"Error aggregating alert metrics: {e}")
             return False
