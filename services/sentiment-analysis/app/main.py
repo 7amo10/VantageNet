@@ -167,4 +167,65 @@ async def health():
             "uptime_seconds": int(uptime_seconds),
             "memory_usage_mb": round(memory_mb, 2),
             **processor_metrics
+        }
+    )
 
+
+@app.post("/reload-rules", tags=["Admin"])
+async def reload_rules():
+    """
+    Reload rules from database (VANTA-24).
+    
+    Useful for testing - allows reloading rules without restarting the service.
+    """
+    if not crowd_processor or not crowd_processor.rules_engine:
+        return {"error": "Rules engine not initialized"}
+    
+    try:
+        await crowd_processor.rules_engine.load_rules()
+        rule_count = len(crowd_processor.rules_engine.rules)
+        logger.info(f"Reloaded {rule_count} rules from database")
+        return {
+            "status": "success",
+            "rules_loaded": rule_count,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to reload rules: {e}")
+        return {"error": str(e)}
+
+@app.post("/trigger-aggregation", tags=["Admin"])
+async def trigger_aggregation():
+    """
+    Manually trigger sentiment aggregation and rule evaluation (VANTA-24).
+    
+    Useful for testing - forces immediate aggregation without waiting for 30s timer.
+    Also rediscovers streams to pick up new test cameras.
+    """
+    if not crowd_processor:
+        return {"error": "Crowd processor not initialized"}
+    
+    if not redis_consumer:
+        return {"error": "Redis consumer not initialized"}
+    
+    try:
+        # First, rediscover streams to pick up any new test streams
+        await redis_consumer.rediscover_streams()
+        logger.info("Rediscovered streams before aggregation")
+        
+        # Wait a moment for any pending messages to be consumed
+        await asyncio.sleep(2)
+        
+        # Now trigger aggregation
+        await crowd_processor.trigger_aggregation()
+        metrics = crowd_processor.get_metrics()
+        logger.info("Manual aggregation completed")
+        return {
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "streams_discovered": len(redis_consumer._streams) if redis_consumer else 0,
+            "metrics": metrics
+        }
+    except Exception as e:
+        logger.error(f"Failed to trigger aggregation: {e}")
+        return {"error": str(e)}

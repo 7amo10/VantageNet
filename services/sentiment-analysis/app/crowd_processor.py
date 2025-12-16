@@ -8,6 +8,7 @@ from .crowd_aggregator import CrowdEmotionAggregator
 from .redis_consumer import RedisConsumer
 from .redis_publisher import RedisPublisher
 from .database import DatabaseManager
+from .rules_engine_v2 import RulesEngineV2
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ class CrowdSentimentProcessor:
         self.aggregator = CrowdEmotionAggregator(window_seconds=window_seconds)
         self.publish_interval = publish_interval
         
+        # VANTA-24: Initialize rules engine for alert generation
+        self.rules_engine = RulesEngineV2(db_manager=db_manager)
+        
         # Metrics
         self.emotions_processed = 0
         self.sentiments_published = 0
@@ -58,6 +62,13 @@ class CrowdSentimentProcessor:
         
         self._running = True
         logger.info("Starting crowd sentiment processor...")
+        
+        # VANTA-24: Load rules from database
+        try:
+            await self.rules_engine.load_rules()
+            logger.info(f"Loaded {len(self.rules_engine.rules)} rules from database")
+        except Exception as e:
+            logger.error(f"Failed to load rules: {e}")
         
         # Start emotion consumer task
         self._emotion_task = asyncio.create_task(self._consume_emotions())
@@ -101,8 +112,12 @@ class CrowdSentimentProcessor:
                     # Get emotions from face
                     face_emotions = face.get("emotions", {})
                     
-                    # Add each emotion to aggregator
-                    for emotion, confidence in face_emotions.items():
+                    if face_emotions:
+                        # Find dominant emotion (highest confidence)
+                        dominant_emotion = max(face_emotions.items(), key=lambda x: x[1])
+                        emotion, confidence = dominant_emotion
+                        
+                        # Add only dominant emotion to aggregator
                         self.aggregator.add_emotion(
                             camera_id=emotion_data.camera_id,
                             timestamp=emotion_data.timestamp,
@@ -127,36 +142,58 @@ class CrowdSentimentProcessor:
         try:
             while self._running:
                 await asyncio.sleep(self.publish_interval)
-                
-                # Aggregate all cameras
-                sentiments = self.aggregator.aggregate_all_cameras()
-                
-                if not sentiments:
-                    logger.debug("No sentiments to publish")
-                    continue
-                
-                logger.info(f"Aggregated {len(sentiments)} camera sentiments")
-                
-                # Publish each sentiment
-                for sentiment in sentiments:
-                    # Publish to Redis
-                    published = await self.redis_publisher.publish_crowd_sentiment(sentiment)
-                    if published:
-                        self.sentiments_published += 1
-                
-                # Batch save to database
-                saved = await self.db_manager.batch_save_crowd_sentiments(sentiments)
-                if saved:
-                    self.sentiments_saved += len(sentiments)
-                    logger.info(
-                        f"Published and saved {len(sentiments)} crowd sentiments. "
-                        f"Total: published={self.sentiments_published}, saved={self.sentiments_saved}"
-                    )
+                await self._aggregate_and_publish()
         
         except asyncio.CancelledError:
             logger.info("Periodic publisher cancelled")
         except Exception as e:
             logger.error(f"Error in periodic publisher: {e}", exc_info=True)
+    
+    async def _aggregate_and_publish(self):
+        """Aggregate emotions and publish sentiments (can be called manually or periodically)."""
+        # Aggregate all cameras
+        sentiments = self.aggregator.aggregate_all_cameras()
+        
+        if not sentiments:
+            logger.debug("No sentiments to publish")
+            return
+        
+        logger.info(f"Aggregated {len(sentiments)} camera sentiments")
+        
+        # Publish each sentiment
+        for sentiment in sentiments:
+            # Publish to Redis
+            published = await self.redis_publisher.publish_crowd_sentiment(sentiment)
+            if published:
+                self.sentiments_published += 1
+            
+            # VANTA-24: Evaluate rules and generate alerts
+            try:
+                alerts = await self.rules_engine.evaluate_all(sentiment)
+                if alerts:
+                    logger.info(f"Generated {len(alerts)} alerts for camera {sentiment.camera_id}")
+                    
+                    # Store alerts to database
+                    await self.rules_engine.store_alerts(alerts)
+                    
+                    # Publish alerts (notifications)
+                    await self.rules_engine.publish_alerts(alerts)
+            except Exception as e:
+                logger.error(f"Error evaluating rules for camera {sentiment.camera_id}: {e}")
+        
+        # Batch save to database
+        saved = await self.db_manager.batch_save_crowd_sentiments(sentiments)
+        if saved:
+            self.sentiments_saved += len(sentiments)
+            logger.info(
+                f"Published and saved {len(sentiments)} crowd sentiments. "
+                f"Total: published={self.sentiments_published}, saved={self.sentiments_saved}"
+            )
+    
+    async def trigger_aggregation(self):
+        """Manually trigger sentiment aggregation (useful for testing)."""
+        logger.info("Manual aggregation triggered")
+        await self._aggregate_and_publish()
     
     def get_metrics(self) -> Dict[str, int]:
         """

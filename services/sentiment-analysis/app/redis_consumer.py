@@ -79,6 +79,12 @@ class RedisConsumer:
             logger.error(f"Error discovering streams: {e}")
             raise
     
+    async def rediscover_streams(self) -> None:
+        """Public method to force stream rediscovery (useful for testing)."""
+        await self._discover_streams()
+        await self._create_consumer_groups()
+        logger.info(f"Rediscovered {len(self._streams)} streams")
+    
     async def _create_consumer_groups(self) -> None:
         """Create consumer groups for all discovered streams."""
         if not self.redis_client:

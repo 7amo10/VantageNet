@@ -83,28 +83,34 @@ CREATE INDEX idx_rules_type ON rules(type);
 CREATE INDEX idx_rules_created_at ON rules(created_at DESC);
 
 -- ============================================
--- ALERTS TABLE
+-- ALERTS TABLE (VANTA-22 Enhanced)
 -- Stores triggered alerts from rules
+-- Auto-deletes records older than 30 days
 -- ============================================
 CREATE TABLE IF NOT EXISTS alerts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     rule_id UUID NOT NULL,
+    camera_id UUID,
+    alert_type VARCHAR(50) NOT NULL DEFAULT 'rule_trigger',
+    emotion VARCHAR(50),
     message TEXT NOT NULL,
-    severity VARCHAR(20) NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    severity VARCHAR(20) NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
     triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_at TIMESTAMPTZ,
-    camera_id UUID,
-    trigger_data JSONB,
+    action_taken VARCHAR(200),
+    metadata_json JSONB,
     acknowledged BOOLEAN DEFAULT FALSE,
     acknowledged_by VARCHAR(100),
     acknowledged_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Indexes for VANTA-22 queries (camera_id, triggered_at), (severity, triggered_at)
 CREATE INDEX idx_alerts_triggered_at ON alerts(triggered_at DESC);
 CREATE INDEX idx_alerts_rule_id ON alerts(rule_id, triggered_at DESC);
-CREATE INDEX idx_alerts_severity ON alerts(severity, triggered_at DESC) WHERE resolved_at IS NULL;
-CREATE INDEX idx_alerts_camera_id ON alerts(camera_id, triggered_at DESC) WHERE camera_id IS NOT NULL;
+CREATE INDEX idx_alerts_camera_triggered ON alerts(camera_id, triggered_at DESC) WHERE camera_id IS NOT NULL;
+CREATE INDEX idx_alerts_severity_triggered ON alerts(severity, triggered_at DESC);
+CREATE INDEX idx_alerts_emotion ON alerts(emotion, triggered_at DESC) WHERE emotion IS NOT NULL;
 CREATE INDEX idx_alerts_unresolved ON alerts(triggered_at DESC) WHERE resolved_at IS NULL;
 
 -- Foreign key constraints
@@ -115,39 +121,48 @@ ALTER TABLE alerts ADD CONSTRAINT fk_alerts_camera
     FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE SET NULL;
 
 -- ============================================
+-- ALERT_METRICS TABLE (VANTA-22 New)
+-- Stores hourly aggregated alert metrics
+-- For fast analytics queries
+-- ============================================
+CREATE TABLE IF NOT EXISTS alert_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    hour TIMESTAMPTZ NOT NULL,
+    camera_id UUID NOT NULL,
+    alert_count INTEGER DEFAULT 0 CHECK (alert_count >= 0),
+    severity_breakdown JSONB NOT NULL DEFAULT '{"info": 0, "warning": 0, "critical": 0}'::jsonb,
+    top_emotion VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT alert_metrics_unique UNIQUE (hour, camera_id)
+);
+
+CREATE INDEX idx_alert_metrics_hour ON alert_metrics(hour DESC);
+CREATE INDEX idx_alert_metrics_camera_hour ON alert_metrics(camera_id, hour DESC);
+
+-- Foreign key constraint
+ALTER TABLE alert_metrics ADD CONSTRAINT fk_alert_metrics_camera
+    FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE;
+
+-- ============================================
 -- SENTIMENT_STATS TABLE
 -- Stores aggregated sentiment statistics per camera
 -- ============================================
 CREATE TABLE IF NOT EXISTS sentiment_stats (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    camera_id UUID NOT NULL,
+    id SERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    time_window_start TIMESTAMPTZ NOT NULL,
-    time_window_end TIMESTAMPTZ NOT NULL,
-    total_faces INTEGER DEFAULT 0 CHECK (total_faces >= 0),
-    avg_happy DECIMAL(5,4) CHECK (avg_happy >= 0 AND avg_happy <= 1),
-    avg_sad DECIMAL(5,4) CHECK (avg_sad >= 0 AND avg_sad <= 1),
-    avg_angry DECIMAL(5,4) CHECK (avg_angry >= 0 AND avg_angry <= 1),
-    avg_neutral DECIMAL(5,4) CHECK (avg_neutral >= 0 AND avg_neutral <= 1),
-    avg_surprised DECIMAL(5,4) CHECK (avg_surprised >= 0 AND avg_surprised <= 1),
-    avg_fear DECIMAL(5,4) CHECK (avg_fear >= 0 AND avg_fear <= 1),
-    avg_disgust DECIMAL(5,4) CHECK (avg_disgust >= 0 AND avg_disgust <= 1),
+    camera_id VARCHAR(100) NOT NULL,
+    total_faces_observed INTEGER NOT NULL DEFAULT 0,
+    emotion_distribution JSONB NOT NULL,
     dominant_emotion VARCHAR(50),
-    sentiment_score DECIMAL(5,4) CHECK (sentiment_score >= -1 AND sentiment_score <= 1),
-    average_confidence DECIMAL(5,4) CHECK (average_confidence >= 0 AND average_confidence <= 1),
-    emotion_distribution JSONB,
-    metadata JSONB,
+    mood_score FLOAT NOT NULL DEFAULT 0.0,
+    trend VARCHAR(20),
+    trend_magnitude FLOAT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_sentiment_stats_timestamp ON sentiment_stats(timestamp DESC);
 CREATE INDEX idx_sentiment_stats_camera_id ON sentiment_stats(camera_id, timestamp DESC);
-CREATE INDEX idx_sentiment_stats_time_window ON sentiment_stats(time_window_start, time_window_end);
 CREATE INDEX idx_sentiment_stats_dominant_emotion ON sentiment_stats(dominant_emotion, timestamp DESC);
-
--- Foreign key constraint
-ALTER TABLE sentiment_stats ADD CONSTRAINT fk_sentiment_stats_camera
-    FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE CASCADE;
 
 -- ============================================
 -- UTILITY FUNCTIONS
@@ -279,3 +294,53 @@ ON CONFLICT (name) DO NOTHING;
 -- Grant permissions (if needed for specific user)
 -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO vantage;
 -- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO vantage;
+
+-- ============================================
+-- STORED FUNCTIONS (VANTA-22)
+-- ============================================
+
+-- Function: Cleanup alerts older than 30 days
+CREATE OR REPLACE FUNCTION cleanup_old_alerts()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    DELETE FROM alerts
+    WHERE triggered_at < NOW() - INTERVAL '30 days';
+    
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION cleanup_old_alerts() IS 'Deletes alerts older than 30 days. Returns count of deleted records.';
+
+-- Function: Aggregate alerts into hourly metrics
+CREATE OR REPLACE FUNCTION aggregate_alert_metrics(target_hour TIMESTAMPTZ)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO alert_metrics (hour, camera_id, alert_count, severity_breakdown, top_emotion)
+    SELECT 
+        DATE_TRUNC('hour', triggered_at) as hour,
+        camera_id,
+        COUNT(*) as alert_count,
+        jsonb_build_object(
+            'info', COUNT(*) FILTER (WHERE severity = 'info'),
+            'warning', COUNT(*) FILTER (WHERE severity = 'warning'),
+            'critical', COUNT(*) FILTER (WHERE severity = 'critical')
+        ) as severity_breakdown,
+        MODE() WITHIN GROUP (ORDER BY emotion) as top_emotion
+    FROM alerts
+    WHERE DATE_TRUNC('hour', triggered_at) = target_hour
+        AND camera_id IS NOT NULL
+    GROUP BY DATE_TRUNC('hour', triggered_at), camera_id
+    ON CONFLICT (hour, camera_id) 
+    DO UPDATE SET
+        alert_count = EXCLUDED.alert_count,
+        severity_breakdown = EXCLUDED.severity_breakdown,
+        top_emotion = EXCLUDED.top_emotion;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION aggregate_alert_metrics(TIMESTAMPTZ) IS 'Aggregates alerts for a specific hour into alert_metrics table.';
