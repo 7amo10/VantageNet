@@ -58,26 +58,59 @@ class RuleAction(str, Enum):
     EMAIL = "email"
 
 
+class RuleType(str, Enum):
+    """Rule type enums (VANTA-25)."""
+    THRESHOLD = "threshold"
+    TREND = "trend"
+    DURATION = "duration"
+    SENTIMENT = "sentiment"
+
+
 class RuleCreate(BaseModel):
-    """Rule creation request (VANTA-20)."""
-    name: str = Field(..., description="Rule name")
-    type: str = Field(..., description="Rule type: threshold, trend, or duration")
+    """Rule creation request (VANTA-20, VANTA-25)."""
+    name: str = Field(..., min_length=1, max_length=200, description="Rule name")
+    type: RuleType = Field(..., description="Rule type: threshold, trend, duration, or sentiment")
     condition_json: dict = Field(..., description="Rule configuration as JSON")
     action: RuleAction
     enabled: bool = True
 
+    @classmethod
+    def validate_condition_json(cls, v: dict, values: dict) -> dict:
+        """Validate condition_json based on rule type."""
+        rule_type = values.get('type')
+        
+        # Validate threshold values are in valid range (0.0-1.0)
+        if 'threshold' in v:
+            threshold = v['threshold']
+            if not isinstance(threshold, (int, float)) or not (0.0 <= threshold <= 1.0):
+                raise ValueError("Threshold must be a number between 0.0 and 1.0")
+        
+        # Validate sentiment_threshold
+        if 'sentiment_threshold' in v:
+            threshold = v['sentiment_threshold']
+            if not isinstance(threshold, (int, float)) or not (0.0 <= threshold <= 1.0):
+                raise ValueError("Sentiment threshold must be a number between 0.0 and 1.0")
+        
+        # Validate confidence threshold
+        if 'min_confidence' in v:
+            confidence = v['min_confidence']
+            if not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
+                raise ValueError("Confidence must be a number between 0.0 and 1.0")
+        
+        return v
+
 
 class RuleUpdate(BaseModel):
-    """Rule update request (VANTA-20)."""
-    name: Optional[str] = None
-    type: Optional[str] = None
+    """Rule update request (VANTA-20, VANTA-25)."""
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    type: Optional[RuleType] = None
     condition_json: Optional[dict] = None
     action: Optional[RuleAction] = None
     enabled: Optional[bool] = None
 
 
 class RuleResponse(BaseModel):
-    """Rule response model (VANTA-20)."""
+    """Rule response model (VANTA-20, VANTA-25)."""
     id: str
     name: str
     type: str
@@ -86,6 +119,20 @@ class RuleResponse(BaseModel):
     enabled: bool
     created_at: datetime
     updated_at: datetime
+
+
+class RuleEvaluationResponse(BaseModel):
+    """Rule evaluation history response (VANTA-25)."""
+    id: str
+    rule_id: str
+    camera_id: Optional[str] = None
+    evaluated_at: datetime
+    matched: bool
+    emotion: Optional[str] = None
+    sentiment_score: Optional[float] = None
+    threshold_value: Optional[float] = None
+    evaluation_result: Optional[dict] = None
+    action_taken: Optional[str] = None
 
 
 class EmotionStats(BaseModel):

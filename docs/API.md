@@ -299,88 +299,82 @@ curl -X DELETE http://localhost:8000/api/cameras/cam_001
 
 ### Rules
 
+Rules allow you to define conditions and actions for sentiment/emotion monitoring. The API supports CRUD operations, enable/disable, and historical evaluation tracking.
+
 #### POST /api/rules
 
-Create a new alert rule.
+Create a new sentiment/emotion rule.
 
 **Request Body**:
 ```json
 {
-  "name": "High Negative Sentiment Alert",
-  "description": "Trigger alert when crowd sentiment is highly negative",
-  "rule_type": "sentiment_threshold",
-  "conditions": {
-    "sentiment_score": {
-      "operator": "less_than",
-      "value": -0.5
-    },
-    "duration_seconds": 30
+  "name": "High Anger Detection",
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.7,
+    "min_confidence": 0.8
   },
-  "actions": {
-    "send_email": true,
-    "email_recipients": ["admin@example.com"],
-    "send_webhook": false
-  },
-  "enabled": true,
-  "camera_ids": ["cam_001", "cam_002"]
+  "action": "alert",
+  "enabled": true
 }
 ```
 
 **Request Schema**:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Rule name |
-| `description` | string | No | Rule description |
-| `rule_type` | string | Yes | Type: `sentiment_threshold`, `emotion_count`, `face_count` |
-| `conditions` | object | Yes | Rule conditions (schema varies by type) |
-| `actions` | object | Yes | Actions to take when rule triggers |
+| `name` | string | Yes | Rule name (1-200 chars, must be unique) |
+| `type` | string | Yes | Type: `threshold`, `trend`, `duration`, `sentiment` |
+| `condition_json` | object | Yes | Rule configuration (varies by type) |
+| `action` | string | Yes | Action: `log`, `alert`, `notification`, `webhook`, `email` |
 | `enabled` | boolean | No | Enable/disable rule (default: `true`) |
-| `camera_ids` | array | No | Camera IDs to apply rule to (empty = all cameras) |
+
+**Condition JSON by Type**:
+- **threshold**: `{ "emotion": "angry", "threshold": 0.7, "min_confidence": 0.8 }`
+- **sentiment**: `{ "sentiment_threshold": 0.5, "min_confidence": 0.7 }`
+- **duration**: `{ "emotion": "sad", "threshold": 0.6, "duration_seconds": 30 }`
+- **trend**: `{ "window_size": 10, "trend_direction": "increasing" }`
+
+**Validation Rules**:
+- `threshold`, `sentiment_threshold`, `min_confidence`: Must be 0.0-1.0
+- `duration_seconds`: Must be positive number
+- Rule names must be unique
 
 **Response**: `201 Created`
 ```json
 {
-  "rule_id": "rule_001",
-  "name": "High Negative Sentiment Alert",
-  "description": "Trigger alert when crowd sentiment is highly negative",
-  "rule_type": "sentiment_threshold",
-  "conditions": {
-    "sentiment_score": {
-      "operator": "less_than",
-      "value": -0.5
-    },
-    "duration_seconds": 30
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "High Anger Detection",
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.7,
+    "min_confidence": 0.8
   },
-  "actions": {
-    "send_email": true,
-    "email_recipients": ["admin@example.com"],
-    "send_webhook": false
-  },
+  "action": "alert",
   "enabled": true,
-  "camera_ids": ["cam_001", "cam_002"],
-  "trigger_count": 0,
-  "last_triggered": null,
-  "created_at": "2025-12-08T10:30:00Z"
+  "created_at": "2025-12-16T10:30:00Z",
+  "updated_at": "2025-12-16T10:30:00Z"
 }
 ```
+
+**Error Responses**:
+- `400 Bad Request`: Invalid input (e.g., threshold out of range, missing required fields)
+- `409 Conflict`: Rule with this name already exists
 
 **Example**:
 ```bash
 curl -X POST http://localhost:8000/api/rules \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "High Negative Sentiment Alert",
-    "rule_type": "sentiment_threshold",
-    "conditions": {
-      "sentiment_score": {
-        "operator": "less_than",
-        "value": -0.5
-      }
+    "name": "High Anger Detection",
+    "type": "threshold",
+    "condition_json": {
+      "emotion": "angry",
+      "threshold": 0.7,
+      "min_confidence": 0.8
     },
-    "actions": {
-      "send_email": true,
-      "email_recipients": ["admin@example.com"]
-    },
+    "action": "alert",
     "enabled": true
   }'
 ```
@@ -393,25 +387,29 @@ List all rules.
 ```json
 [
   {
-    "rule_id": "rule_001",
-    "name": "High Negative Sentiment Alert",
-    "description": "Trigger alert when crowd sentiment is highly negative",
-    "rule_type": "sentiment_threshold",
-    "conditions": {
-      "sentiment_score": {
-        "operator": "less_than",
-        "value": -0.5
-      }
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "High Anger Detection",
+    "type": "threshold",
+    "condition_json": {
+      "emotion": "angry",
+      "threshold": 0.7
     },
-    "actions": {
-      "send_email": true,
-      "email_recipients": ["admin@example.com"]
-    },
+    "action": "alert",
     "enabled": true,
-    "camera_ids": [],
-    "trigger_count": 5,
-    "last_triggered": "2025-12-08T09:45:00Z",
-    "created_at": "2025-12-08T09:00:00Z"
+    "created_at": "2025-12-16T09:00:00Z",
+    "updated_at": "2025-12-16T09:00:00Z"
+  },
+  {
+    "id": "660e8400-e29b-41d4-a716-446655440001",
+    "name": "Negative Sentiment Trend",
+    "type": "sentiment",
+    "condition_json": {
+      "sentiment_threshold": -0.5
+    },
+    "action": "email",
+    "enabled": true,
+    "created_at": "2025-12-16T09:15:00Z",
+    "updated_at": "2025-12-16T09:15:00Z"
   }
 ]
 ```
@@ -428,35 +426,32 @@ Get rule details by ID.
 **Path Parameters**:
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `rule_id` | string | Rule ID (e.g., `rule_001`) |
+| `rule_id` | uuid | Rule UUID |
 
 **Response**: `200 OK`
 ```json
 {
-  "rule_id": "rule_001",
-  "name": "High Negative Sentiment Alert",
-  "rule_type": "sentiment_threshold",
-  "conditions": {
-    "sentiment_score": {
-      "operator": "less_than",
-      "value": -0.5
-    }
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "High Anger Detection",
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.7,
+    "min_confidence": 0.8
   },
-  "actions": {
-    "send_email": true,
-    "email_recipients": ["admin@example.com"]
-  },
+  "action": "alert",
   "enabled": true,
-  "camera_ids": [],
-  "trigger_count": 5,
-  "last_triggered": "2025-12-08T09:45:00Z",
-  "created_at": "2025-12-08T09:00:00Z"
+  "created_at": "2025-12-16T09:00:00Z",
+  "updated_at": "2025-12-16T09:00:00Z"
 }
 ```
 
+**Error Responses**:
+- `404 Not Found`: Rule does not exist
+
 **Example**:
 ```bash
-curl http://localhost:8000/api/rules/rule_001
+curl http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000
 ```
 
 #### PUT /api/rules/{rule_id}
@@ -466,52 +461,52 @@ Update rule configuration.
 **Path Parameters**:
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `rule_id` | string | Rule ID (e.g., `rule_001`) |
+| `rule_id` | uuid | Rule UUID |
 
 **Request Body** (all fields optional):
 ```json
 {
   "name": "Updated Rule Name",
-  "enabled": false,
-  "conditions": {
-    "sentiment_score": {
-      "operator": "less_than",
-      "value": -0.3
-    }
-  }
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.8
+  },
+  "action": "webhook",
+  "enabled": false
 }
 ```
 
 **Response**: `200 OK`
 ```json
 {
-  "rule_id": "rule_001",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
   "name": "Updated Rule Name",
-  "rule_type": "sentiment_threshold",
-  "conditions": {
-    "sentiment_score": {
-      "operator": "less_than",
-      "value": -0.3
-    }
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.8
   },
-  "actions": {
-    "send_email": true,
-    "email_recipients": ["admin@example.com"]
-  },
+  "action": "webhook",
   "enabled": false,
-  "camera_ids": [],
-  "trigger_count": 5,
-  "last_triggered": "2025-12-08T09:45:00Z",
-  "created_at": "2025-12-08T09:00:00Z"
+  "created_at": "2025-12-16T09:00:00Z",
+  "updated_at": "2025-12-16T11:30:00Z"
 }
 ```
 
+**Error Responses**:
+- `400 Bad Request`: Invalid input
+- `404 Not Found`: Rule does not exist
+- `409 Conflict`: Duplicate rule name
+
 **Example**:
 ```bash
-curl -X PUT http://localhost:8000/api/rules/rule_001 \
+curl -X PUT http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000 \
   -H "Content-Type: application/json" \
   -d '{
-    "enabled": false
+    "condition_json": {
+      "threshold": 0.8
+    }
   }'
 ```
 
@@ -522,13 +517,154 @@ Delete a rule.
 **Path Parameters**:
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `rule_id` | string | Rule ID (e.g., `rule_001`) |
+| `rule_id` | uuid | Rule UUID |
 
 **Response**: `204 No Content`
 
+**Error Responses**:
+- `404 Not Found`: Rule does not exist
+
 **Example**:
 ```bash
-curl -X DELETE http://localhost:8000/api/rules/rule_001
+curl -X DELETE http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000
+```
+
+#### PATCH /api/rules/{rule_id}/enable
+
+Enable a rule.
+
+**Path Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rule_id` | uuid | Rule UUID |
+
+**Response**: `200 OK`
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "High Anger Detection",
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.7
+  },
+  "action": "alert",
+  "enabled": true,
+  "created_at": "2025-12-16T09:00:00Z",
+  "updated_at": "2025-12-16T11:45:00Z"
+}
+```
+
+**Error Responses**:
+- `404 Not Found`: Rule does not exist
+
+**Example**:
+```bash
+curl -X PATCH http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000/enable
+```
+
+#### PATCH /api/rules/{rule_id}/disable
+
+Disable a rule.
+
+**Path Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rule_id` | uuid | Rule UUID |
+
+**Response**: `200 OK`
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "High Anger Detection",
+  "type": "threshold",
+  "condition_json": {
+    "emotion": "angry",
+    "threshold": 0.7
+  },
+  "action": "alert",
+  "enabled": false,
+  "created_at": "2025-12-16T09:00:00Z",
+  "updated_at": "2025-12-16T11:46:00Z"
+}
+```
+
+**Error Responses**:
+- `404 Not Found`: Rule does not exist
+
+**Example**:
+```bash
+curl -X PATCH http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000/disable
+```
+
+#### GET /api/rules/{rule_id}/history
+
+Get past rule evaluations (history).
+
+Returns evaluation history from the rule_evaluations table, showing when the rule was evaluated, whether it matched, and what action was taken.
+
+**Path Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `rule_id` | uuid | Rule UUID |
+
+**Query Parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | integer | No | Number of records to return (1-1000, default: 100) |
+| `matched_only` | boolean | No | Filter by matched status (true/false) |
+
+**Response**: `200 OK`
+```json
+[
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440002",
+    "rule_id": "550e8400-e29b-41d4-a716-446655440000",
+    "camera_id": "880e8400-e29b-41d4-a716-446655440003",
+    "evaluated_at": "2025-12-16T11:30:00Z",
+    "matched": true,
+    "emotion": "angry",
+    "sentiment_score": null,
+    "threshold_value": 0.75,
+    "evaluation_result": {
+      "detected_value": 0.82,
+      "threshold": 0.7,
+      "confidence": 0.85
+    },
+    "action_taken": "alert"
+  },
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440003",
+    "rule_id": "550e8400-e29b-41d4-a716-446655440000",
+    "camera_id": "880e8400-e29b-41d4-a716-446655440003",
+    "evaluated_at": "2025-12-16T11:15:00Z",
+    "matched": false,
+    "emotion": "angry",
+    "sentiment_score": null,
+    "threshold_value": 0.65,
+    "evaluation_result": {
+      "detected_value": 0.65,
+      "threshold": 0.7,
+      "confidence": 0.88
+    },
+    "action_taken": null
+  }
+]
+```
+
+**Error Responses**:
+- `404 Not Found`: Rule does not exist
+
+**Example**:
+```bash
+# Get last 100 evaluations
+curl http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000/history
+
+# Get only matched evaluations
+curl "http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000/history?matched_only=true"
+
+# Get last 50 evaluations
+curl "http://localhost:8000/api/rules/550e8400-e29b-41d4-a716-446655440000/history?limit=50"
 ```
 
 ---

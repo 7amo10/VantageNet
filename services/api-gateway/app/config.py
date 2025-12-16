@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     redis_port: int = Field(default=6380, env="REDIS_PORT")
     redis_db: int = 0
     redis_sentiment_stream: str = "sentiment:crowd"
+    redis_rules_channel: str = "rules:changes"  # VANTA-25: Channel for rule change events
     
     # Performance
     max_memory_mb: int = 256
