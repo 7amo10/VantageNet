@@ -14,7 +14,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     
     # CORS
-    cors_origins: list = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    cors_origins: list = [
+        "http://localhost:3000",
+        "http://localhost:3001", 
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001"
+    ]
     
     # Service URLs (for service-to-service communication)
     video_ingestion_url: str = Field(
