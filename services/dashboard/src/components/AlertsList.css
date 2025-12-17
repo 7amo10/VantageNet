@@ -1,0 +1,259 @@
+.alerts-list-container {
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Filters Section */
+.filters-section {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.filters-section h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.filters-row {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.filter-group label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+}
+
+.filter-group select,
+.filter-group input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 150px;
+}
+
+.filter-group select:focus,
+.filter-group input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.reset-button {
+  padding: 8px 16px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.reset-button:hover {
+  background: #5a6268;
+}
+
+/* Alerts Table */
+.alerts-table-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+}
+
+.alerts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.alerts-table thead {
+  background: #f8f9fa;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.alerts-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+
+.alerts-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.alerts-table th.sortable:hover {
+  background: #e9ecef;
+}
+
+.alerts-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.alerts-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.alerts-table tbody tr.acknowledged-row {
+  opacity: 0.6;
+}
+
+.no-alerts {
+  text-align: center;
+  padding: 40px 16px !important;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Severity Badges */
+.severity-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-critical {
+  background: #dc3545;
+  color: white;
+}
+
+.severity-high {
+  background: #fd7e14;
+  color: white;
+}
+
+.severity-medium {
+  background: #ffc107;
+  color: #000;
+}
+
+.severity-low {
+  background: #28a745;
+  color: white;
+}
+
+/* Status Indicators */
+.status-active {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.status-acknowledged {
+  color: #28a745;
+  font-weight: 500;
+}
+
+/* Message Cell */
+.message-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* View Button */
+.view-button {
+  padding: 6px 12px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.view-button:hover {
+  background: #0056b3;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+  padding: 20px;
+}
+
+.pagination button {
+  padding: 8px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.pagination button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pagination span {
+  font-weight: 500;
+  color: #333;
+}
+
+/* Loading & Error States */
+.loading {
+  text-align: center;
+  padding: 40px;
+  font-size: 18px;
+  color: #6c757d;
+}
+
+.error-container {
+  text-align: center;
+  padding: 40px;
+}
+
+.error {
+  color: #dc3545;
+  margin-bottom: 15px;
+  font-size: 16px;
+}
+
+.error-container button {
+  padding: 8px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.error-container button:hover {
+  background: #0056b3;
+}
