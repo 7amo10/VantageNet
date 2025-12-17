@@ -7,6 +7,7 @@ import sys
 import psutil
 from datetime import datetime
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import JSONResponse
@@ -16,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from .config import settings
 from .models import HealthResponse, ErrorResponse
 from .websocket_manager import manager as ws_manager
-from .routers import cameras_router, rules_router, analytics_router
+from .routers import cameras_router, rules_router, analytics_router, alerts_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -94,6 +95,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(cameras_router)
 app.include_router(rules_router)
 app.include_router(analytics_router)
+app.include_router(alerts_router)
 
 
 @app.get("/", tags=["Info"])
@@ -108,6 +110,7 @@ async def root():
             "docs": "/docs",
             "cameras": "/api/cameras",
             "rules": "/api/rules",
+            "alerts": "/api/alerts",
             "analytics": "/api/analytics/summary",
             "websocket": "/ws/live"
         },

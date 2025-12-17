@@ -11,6 +11,7 @@ export default function Navigation() {
     { name: 'Live', path: '/live', icon: '📡' },
     { name: 'Video', path: '/video', icon: '📹' },
     { name: 'Rules', path: '/rules', icon: '⚙️' },
+    { name: 'Alerts', path: '/alerts', icon: '🔔' },
     { name: 'Analytics', path: '/analytics', icon: '📈' },
     { name: 'Settings', path: '/settings', icon: '🔧' },
   ];
