@@ -8,7 +8,6 @@ export default function Navigation() {
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: '📊' },
-    { name: 'Live', path: '/live', icon: '📡' },
     { name: 'Rules', path: '/rules', icon: '⚙️' },
     { name: 'Analytics', path: '/analytics', icon: '📈' },
     { name: 'Settings', path: '/settings', icon: '🔧' },
