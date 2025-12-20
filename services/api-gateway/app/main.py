@@ -2,6 +2,7 @@
 API Gateway Service
 REST + WebSocket APIs for VantageNet
 """
+import asyncio
 import logging
 import sys
 import psutil
@@ -17,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from .config import settings
 from .models import HealthResponse, ErrorResponse
 from .websocket_manager import manager as ws_manager
+from .websocket_broadcaster import broadcaster
 from .routers import cameras_router, rules_router, analytics_router, alerts_router
 
 # Configure structured logging
@@ -38,10 +40,24 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.service_name} v{settings.service_version}")
     logger.info(f"API Gateway started on port {settings.port}")
     
+    # Start WebSocket broadcaster (VANTA-31)
+    try:
+        await broadcaster.start()
+        logger.info("WebSocket broadcaster initialized")
+    except Exception as e:
+        logger.error(f"Failed to start broadcaster: {e}")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down API Gateway...")
+    
+    # Stop WebSocket broadcaster
+    try:
+        await broadcaster.stop()
+        logger.info("WebSocket broadcaster stopped")
+    except Exception as e:
+        logger.error(f"Error stopping broadcaster: {e}")
 
 
 # Create FastAPI application
@@ -156,37 +172,56 @@ async def websocket_live(websocket: WebSocket):
     """
     WebSocket endpoint for real-time dashboard updates.
     
+    VANTA-31: Enhanced with:
+    - Max 100 concurrent connections
+    - 30s inactivity timeout
+    - Automatic reconnection support
+    - 4 message types: sentiment_update, alert_triggered, rule_evaluation, camera_status
+    
     Message Types:
-    - sentiment_update: Real-time sentiment data
-    - emotion_event: Individual emotion detection events
-    - alert: Rule-triggered alerts
+    - sentiment_update: Real-time sentiment data (every 2s)
+    - alert_triggered: Rule-triggered alerts (immediate)
+    - rule_evaluation: Rule evaluation results (debugging)
+    - camera_status: Camera connected/disconnected
     - connected: Connection confirmation
+    - pong: Response to ping keepalive
     """
-    await ws_manager.connect(websocket)
+    # Try to connect (enforces max connections limit)
+    connected = await ws_manager.connect(websocket)
+    
+    if not connected:
+        return  # Connection rejected
     
     try:
         while True:
-            # Receive messages from client
-            data = await websocket.receive_text()
-            
-            # Handle ping/pong for keepalive
-            if data == "ping":
-                await websocket.send_json({
-                    "type": "pong",
-                    "timestamp": datetime.now().isoformat()
-                })
-            else:
-                # Echo for Sprint 1 (Sprint 2 will handle commands)
-                await websocket.send_json({
-                    "type": "echo",
-                    "data": {"message": data},
-                    "timestamp": datetime.now().isoformat()
-                })
+            # Wait for client messages with 30s timeout (VANTA-31 requirement)
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=30.0
+                )
+                
+                # Handle ping/pong for keepalive
+                if data == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                else:
+                    # Log other client messages (for debugging)
+                    logger.debug(f"WebSocket received: {data}")
+                    
+            except asyncio.TimeoutError:
+                # Connection timeout after 30s of inactivity
+                logger.info("WebSocket connection timeout after 30s inactivity")
+                await websocket.close(code=1000, reason="Timeout")
+                break
     
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        logger.info("WebSocket client disconnected")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}", exc_info=True)
+    finally:
         ws_manager.disconnect(websocket)
 
 

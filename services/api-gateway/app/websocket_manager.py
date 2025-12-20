@@ -11,18 +11,32 @@ logger = logging.getLogger(__name__)
 class ConnectionManager:
     """Manages WebSocket connections and broadcasting."""
     
+    MAX_CONNECTIONS = 100  # VANTA-31: Maximum concurrent connections
+    
     def __init__(self):
         """Initialize connection manager."""
         self.active_connections: List[WebSocket] = []
         self._connection_count = 0
         
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket) -> bool:
         """
         Accept and register new WebSocket connection.
         
         Args:
             websocket: WebSocket connection to register
+            
+        Returns:
+            True if connected, False if max connections reached
         """
+        # VANTA-31: Enforce max connections limit
+        if len(self.active_connections) >= self.MAX_CONNECTIONS:
+            logger.warning(
+                f"WebSocket connection rejected | "
+                f"Max connections reached: {self.MAX_CONNECTIONS}"
+            )
+            await websocket.close(code=1008, reason="Max connections reached")
+            return False
+            
         await websocket.accept()
         self.active_connections.append(websocket)
         self._connection_count += 1
@@ -39,11 +53,14 @@ class ConnectionManager:
                 "type": "connected",
                 "data": {
                     "message": "Connected to VantageNet API Gateway",
-                    "active_connections": len(self.active_connections)
+                    "active_connections": len(self.active_connections),
+                    "max_connections": self.MAX_CONNECTIONS
                 },
                 "timestamp": datetime.now().isoformat()
             }
         )
+        
+        return True
     
     def disconnect(self, websocket: WebSocket) -> None:
         """
@@ -137,11 +154,38 @@ class ConnectionManager:
             alert_data: Alert data to broadcast
         """
         message = {
-            "type": "alert",
+            "type": "alert_triggered",  # VANTA-31: Use alert_triggered type
             "data": alert_data
         }
         await self.broadcast(message)
         logger.warning(f"Alert broadcasted: {alert_data.get('message', 'N/A')}")
+    
+    async def send_rule_evaluation(self, rule_data: Dict[str, Any]) -> None:
+        """
+        Broadcast rule evaluation result to all clients (for debugging).
+        
+        Args:
+            rule_data: Rule evaluation data to broadcast
+        """
+        message = {
+            "type": "rule_evaluation",
+            "data": rule_data
+        }
+        await self.broadcast(message)
+    
+    async def send_camera_status(self, camera_data: Dict[str, Any]) -> None:
+        """
+        Broadcast camera status change to all clients.
+        
+        Args:
+            camera_data: Camera status data to broadcast
+        """
+        message = {
+            "type": "camera_status",
+            "data": camera_data
+        }
+        await self.broadcast(message)
+        logger.info(f"Camera status broadcasted: {camera_data.get('camera_id', 'N/A')}")
     
     def get_stats(self) -> Dict[str, int]:
         """
@@ -152,7 +196,8 @@ class ConnectionManager:
         """
         return {
             "active_connections": len(self.active_connections),
-            "total_connections": self._connection_count
+            "total_connections": self._connection_count,
+            "max_connections": self.MAX_CONNECTIONS
         }
 
 
