@@ -1,152 +1,150 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import AnalyticsFilters, { FilterValues } from '@/components/AnalyticsFilters';
+import AnalyticsCharts from '@/components/AnalyticsCharts';
+import './Analytics.css';
 
-interface SentimentData {
-  timestamp: string;
-  sentiment: number;
-  emotion: string;
+interface AnalyticsData {
+  timeline: any[];
+  detections: any;
+  emotions: any[];
+  sentiments: any[];
+  cameras: any[];
 }
 
-export default function Analytics() {
-  const [timeRange, setTimeRange] = useState('24h');
-  const [sentimentData, setSentimentData] = useState<SentimentData[]>([]);
+const Analytics: React.FC = () => {
+  const [data, setData] = useState<AnalyticsData>({
+    timeline: [],
+    detections: { total_detections: 0, unique_faces: 0, avg_confidence: 0 },
+    emotions: [],
+    sentiments: [],
+    cameras: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterValues>({
+    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+    cameraId: '',
+    interval: 'hour',
+  });
 
   useEffect(() => {
-    // Mock data for Sprint 1
-    setSentimentData([
-      { timestamp: '10:00', sentiment: 0.3, emotion: 'happy' },
-      { timestamp: '11:00', sentiment: 0.5, emotion: 'happy' },
-      { timestamp: '12:00', sentiment: -0.2, emotion: 'sad' },
-      { timestamp: '13:00', sentiment: 0.1, emotion: 'neutral' },
-      { timestamp: '14:00', sentiment: 0.4, emotion: 'happy' },
-    ]);
-  }, [timeRange]);
+    fetchAnalyticsData();
+  }, [filters]);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Analytics</h1>
-          <p className="text-gray-600 mt-2">Sentiment trends and emotion insights</p>
-        </div>
-        <select
-          value={timeRange}
-          onChange={(e) => setTimeRange(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="1h">Last Hour</option>
-          <option value="24h">Last 24 Hours</option>
-          <option value="7d">Last 7 Days</option>
-          <option value="30d">Last 30 Days</option>
-        </select>
-      </div>
+  const buildQueryParams = () => {
+    const params = new URLSearchParams();
+    params.append('start_date', filters.startDate);
+    params.append('end_date', filters.endDate);
+    if (filters.cameraId) {
+      params.append('camera_id', filters.cameraId);
+    }
+    params.append('interval', filters.interval);
+    return params.toString();
+  };
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <MetricCard
-          title="Average Sentiment"
-          value="0.42"
-          change="+12%"
-          trend="up"
-        />
-        <MetricCard
-          title="Total Interactions"
-          value="1,247"
-          change="+8%"
-          trend="up"
-        />
-        <MetricCard
-          title="Dominant Emotion"
-          value="Happy"
-          change="67%"
-          trend="neutral"
-        />
-      </div>
+  const fetchAnalyticsData = async () => {
+    setLoading(true);
+    setError(null);
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Sentiment Over Time</h2>
-        <div className="flex items-center justify-center h-64 bg-gray-100 rounded">
-          <p className="text-gray-500">Chart visualization will appear here (Sprint 2)</p>
-        </div>
-      </div>
+    try {
+      const queryParams = buildQueryParams();
+      
+      const [timelineRes, detectionsRes, emotionsRes, sentimentsRes, camerasRes] = await Promise.all([
+        fetch(`http://localhost:8000/api/analytics/stats/timeline?${queryParams}`),
+        fetch(`http://localhost:8000/api/analytics/stats/detections?${queryParams}`),
+        fetch(`http://localhost:8000/api/analytics/stats/emotions?${queryParams}`),
+        fetch(`http://localhost:8000/api/analytics/stats/sentiments?${queryParams}`),
+        fetch(`http://localhost:8000/api/analytics/stats/cameras?${queryParams}`),
+      ]);
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Emotion Distribution</h2>
-          <div className="space-y-3">
-            <EmotionBar label="Happy" percentage={45} color="bg-green-500" />
-            <EmotionBar label="Neutral" percentage={30} color="bg-gray-500" />
-            <EmotionBar label="Sad" percentage={15} color="bg-blue-500" />
-            <EmotionBar label="Angry" percentage={10} color="bg-red-500" />
-          </div>
-        </div>
+      if (!timelineRes.ok || !detectionsRes.ok || !emotionsRes.ok || !sentimentsRes.ok || !camerasRes.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Top Cameras by Activity</h2>
-          <div className="space-y-3">
-            <CameraActivity name="Main Entrance" count={543} />
-            <CameraActivity name="Lobby Area" count={412} />
-            <CameraActivity name="Reception" count={292} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+      const [timeline, detections, emotions, sentiments, cameras] = await Promise.all([
+        timelineRes.json(),
+        detectionsRes.json(),
+        emotionsRes.json(),
+        sentimentsRes.json(),
+        camerasRes.json(),
+      ]);
 
-interface MetricCardProps {
-  title: string;
-  value: string;
-  change: string;
-  trend: 'up' | 'down' | 'neutral';
-}
+      setData({
+        timeline: timeline.timeline || [],
+        detections: detections,
+        emotions: emotions.emotions || [],
+        sentiments: sentiments.sentiments || [],
+        cameras: cameras.cameras || [],
+      });
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+      setError('Failed to load analytics data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-function MetricCard({ title, value, change, trend }: MetricCardProps) {
-  const trendColors = {
-    up: 'text-green-600',
-    down: 'text-red-600',
-    neutral: 'text-gray-600',
+  const handleFilterChange = (newFilters: FilterValues) => {
+    setFilters(newFilters);
+  };
+
+  const handleExport = async () => {
+    try {
+      const queryParams = buildQueryParams();
+      const response = await fetch(`http://localhost:8000/api/analytics/stats/export?${queryParams}`);
+      
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analytics_${filters.startDate}_to_${filters.endDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export data');
+    }
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <p className="text-sm text-gray-600">{title}</p>
-      <p className="text-3xl font-bold mt-2">{value}</p>
-      <p className={`text-sm mt-1 ${trendColors[trend]}`}>{change} from previous period</p>
+    <div className="analytics-page">
+      <AnalyticsFilters onFilterChange={handleFilterChange} onExport={handleExport} />
+
+      {loading && (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <p>Loading analytics data...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="error-container">
+          <p>❌ {error}</p>
+          <button onClick={fetchAnalyticsData}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <AnalyticsCharts
+          timelineData={data.timeline}
+          detectionStats={data.detections}
+          emotionData={data.emotions}
+          sentimentData={data.sentiments}
+          cameraStats={data.cameras}
+        />
+      )}
     </div>
   );
-}
+};
 
-interface EmotionBarProps {
-  label: string;
-  percentage: number;
-  color: string;
-}
+export default Analytics;
 
-function EmotionBar({ label, percentage, color }: EmotionBarProps) {
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span className="text-gray-700">{label}</span>
-        <span className="text-gray-600">{percentage}%</span>
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div className={`${color} h-2 rounded-full`} style={{ width: `${percentage}%` }} />
-      </div>
-    </div>
-  );
-}
-
-interface CameraActivityProps {
-  name: string;
-  count: number;
-}
-
-function CameraActivity({ name, count }: CameraActivityProps) {
-  return (
-    <div className="flex justify-between items-center py-2 border-b border-gray-200 last:border-0">
-      <span className="text-gray-700">{name}</span>
-      <span className="font-semibold">{count} faces</span>
-    </div>
-  );
-}
