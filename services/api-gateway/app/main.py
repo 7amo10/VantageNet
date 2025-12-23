@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 
 from .config import settings
 from .models import HealthResponse, ErrorResponse
+from .database import database
 from .websocket_manager import manager as ws_manager
 from .websocket_broadcaster import broadcaster
 from .routers import cameras_router, rules_router, analytics_router, alerts_router
@@ -40,6 +41,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.service_name} v{settings.service_version}")
     logger.info(f"API Gateway started on port {settings.port}")
     
+    # Connect to database
+    try:
+        await database.connect()
+        logger.info("Database connection established")
+    except Exception as e:
+        logger.error(f"Failed to connect to database: {e}")
+    
     # Start WebSocket broadcaster (VANTA-31)
     try:
         await broadcaster.start()
@@ -58,6 +66,13 @@ async def lifespan(app: FastAPI):
         logger.info("WebSocket broadcaster stopped")
     except Exception as e:
         logger.error(f"Error stopping broadcaster: {e}")
+    
+    # Disconnect database
+    try:
+        await database.disconnect()
+        logger.info("Database disconnected")
+    except Exception as e:
+        logger.error(f"Error disconnecting database: {e}")
 
 
 # Create FastAPI application

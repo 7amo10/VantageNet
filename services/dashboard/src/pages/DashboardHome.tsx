@@ -18,6 +18,13 @@ interface RecentAlert {
   severity: 'info' | 'warning' | 'error';
 }
 
+interface CameraInfo {
+  camera_id: string;
+  name: string;
+  status: string;
+  enabled: boolean;
+}
+
 export default function DashboardHome() {
   const [stats, setStats] = useState<DashboardStats>({
     totalCameras: 0,
@@ -28,17 +35,18 @@ export default function DashboardHome() {
   });
 
   const [recentAlerts, setRecentAlerts] = useState<RecentAlert[]>([]);
+  const [cameras, setCameras] = useState<CameraInfo[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<string>('Disconnected');
 
   // VANTA-31: WebSocket integration
   const { isConnected, isConnecting, error, reconnectAttempts } = useWebSocket({
     url: 'ws://localhost:8000/ws/live',
-    
+
     onConnected: (data) => {
       console.log('WebSocket connected:', data);
       setConnectionStatus('Connected');
     },
-    
+
     onSentimentUpdate: (data: SentimentUpdate) => {
       // Update dashboard stats with real-time sentiment data
       setStats(prev => ({
@@ -48,21 +56,21 @@ export default function DashboardHome() {
         dominantEmotion: data.dominant_emotion,
       }));
     },
-    
+
     onAlert: (data: AlertTriggered) => {
       // Add new alert to the top of the list
       const newAlert: RecentAlert = {
         id: data.alert_id,
         message: data.message,
         timestamp: new Date(data.triggered_at).toLocaleString(),
-        severity: data.severity === 'high' || data.severity === 'critical' ? 'error' 
-                  : data.severity === 'medium' ? 'warning' 
-                  : 'info',
+        severity: data.severity === 'high' || data.severity === 'critical' ? 'error'
+          : data.severity === 'medium' ? 'warning'
+            : 'info',
       };
-      
+
       setRecentAlerts(prev => [newAlert, ...prev.slice(0, 9)]); // Keep last 10 alerts
     },
-    
+
     onCameraStatus: (data: CameraStatus) => {
       console.log('Camera status update:', data);
       // Update camera counts based on status
@@ -78,12 +86,12 @@ export default function DashboardHome() {
         }));
       }
     },
-    
+
     onError: (event) => {
       console.error('WebSocket error:', event);
       setConnectionStatus('Error');
     },
-    
+
     autoReconnect: true,
     maxReconnectAttempts: 5,
   });
@@ -103,13 +111,16 @@ export default function DashboardHome() {
 
   // Fetch initial camera count
   useEffect(() => {
-    fetch('http://localhost:8000/api/cameras')
+    fetch('http://localhost:8000/api/cameras/')
       .then(res => res.json())
       .then(data => {
+        // API returns array directly, not { cameras: [...] }
+        const cameraList = Array.isArray(data) ? data : (data.cameras || []);
+        setCameras(cameraList);
         setStats(prev => ({
           ...prev,
-          totalCameras: data.cameras?.length || 0,
-          activeCameras: data.cameras?.filter((c: any) => c.active).length || 0,
+          totalCameras: cameraList.length || 0,
+          activeCameras: cameraList.filter((c: any) => c.enabled && c.status === 'active').length || 0,
         }));
       })
       .catch(err => console.error('Error fetching cameras:', err));
@@ -127,9 +138,8 @@ export default function DashboardHome() {
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-gray-700">WebSocket Status:</span>
           <div className="flex items-center gap-2">
-            <span className={`inline-block w-2 h-2 rounded-full ${
-              isConnected ? 'bg-green-500' : isConnecting ? 'bg-yellow-500' : 'bg-red-500'
-            }`}></span>
+            <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : isConnecting ? 'bg-yellow-500' : 'bg-red-500'
+              }`}></span>
             <span className="text-sm text-gray-600">{connectionStatus}</span>
           </div>
         </div>
@@ -162,9 +172,44 @@ export default function DashboardHome() {
 
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-4">Live Feed</h2>
-        <div className="flex items-center justify-center h-64 bg-gray-100 rounded">
-          <p className="text-gray-500">Camera feed will appear here (Sprint 2)</p>
-        </div>
+        {cameras.filter(c => c.enabled && c.status === 'active').length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {cameras.filter(c => c.enabled && c.status === 'active').slice(0, 4).map(camera => (
+              <div key={camera.camera_id} className="relative aspect-video bg-black rounded overflow-hidden">
+                <img 
+                  src={`http://localhost:8001/cameras/${camera.camera_id}/stream?annotate=true`}
+                  alt={`${camera.name} Feed`}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    if (target.nextElementSibling) {
+                      (target.nextElementSibling as HTMLElement).classList.remove('hidden');
+                    }
+                  }}
+                />
+                <div className="hidden absolute inset-0 flex items-center justify-center text-gray-400 bg-gray-800">
+                  <p className="text-sm">Stream unavailable</p>
+                </div>
+                <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                  📹 {camera.name}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-64 bg-gray-100 rounded">
+            <div className="text-center">
+              <p className="text-gray-500 text-lg">No active cameras</p>
+              <p className="text-gray-400 text-sm mt-2">
+                Start a camera from the Video Ingestion service to see the live feed
+              </p>
+              <p className="text-gray-400 text-xs mt-4">
+                Endpoint: http://localhost:8001/cameras/&#123;camera_id&#125;/stream
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-lg shadow p-6">

@@ -113,9 +113,10 @@ class ThresholdRule(Rule):
         name: str,
         emotion: str,
         threshold: float,
-        action: str,
+        action: str = "alert",
         enabled: bool = True,
-        priority: int = 0
+        priority: int = 0,
+        **kwargs  # Accept unknown params from database
     ):
         """
         Initialize threshold rule.
@@ -192,11 +193,12 @@ class TrendRule(Rule):
         self,
         rule_id: str,
         name: str,
-        direction: str,  # improving, declining, stable
-        min_magnitude: float,
-        action: str,
+        direction: str = "declining",  # improving, declining, stable
+        min_magnitude: float = 0.1,
+        action: str = "alert",
         enabled: bool = True,
-        priority: int = 0
+        priority: int = 0,
+        **kwargs  # Accept unknown params from database
     ):
         """
         Initialize trend rule.
@@ -273,12 +275,13 @@ class DurationRule(Rule):
         self,
         rule_id: str,
         name: str,
-        emotion: str,
-        threshold: float,
-        duration_seconds: int,
-        action: str,
+        emotion: str = "angry",
+        threshold: float = 0.5,
+        duration_seconds: int = 60,
+        action: str = "alert",
         enabled: bool = True,
-        priority: int = 0
+        priority: int = 0,
+        **kwargs  # Accept unknown params from database
     ):
         """
         Initialize duration rule.

@@ -47,7 +47,11 @@ class CrowdSentimentProcessor:
         # Metrics
         self.emotions_processed = 0
         self.sentiments_published = 0
+        self.sentiments_published = 0
         self.sentiments_saved = 0
+        
+        # Buffer for raw emotions (VANTA-30 Analytics)
+        self.raw_emotions_buffer = []
         
         # Task handles
         self._emotion_task: asyncio.Task = None
@@ -107,17 +111,20 @@ class CrowdSentimentProcessor:
         """Consume emotions from Redis and add to aggregator."""
         try:
             async for emotion_data in self.redis_consumer.read_emotions():
-                # Extract individual face emotions
-                for face in emotion_data.faces:
-                    # Get emotions from face
-                    face_emotions = face.get("emotions", {})
-                    
-                    if face_emotions:
-                        # Find dominant emotion (highest confidence)
-                        dominant_emotion = max(face_emotions.items(), key=lambda x: x[1])
-                        emotion, confidence = dominant_emotion
+                # The emotion-detection service sends:
+                # - faces: [{"bbox": [...], "confidence": x, "face_id": "face_X"}]
+                # - emotions: [{"face_id": "face_X", "emotion": "sad", "confidence": x, "all_emotions": {...}}]
+                # We need to use the 'emotions' field, not extract from 'faces'
+                
+                emotions_list = getattr(emotion_data, 'emotions', []) or []
+                
+                for emotion_entry in emotions_list:
+                    if isinstance(emotion_entry, dict):
+                        emotion = emotion_entry.get("emotion", "neutral")
+                        confidence = emotion_entry.get("confidence", 0.5)
                         
-                        # Add only dominant emotion to aggregator
+                        # Add to aggregator
+                        # Add to aggregator
                         self.aggregator.add_emotion(
                             camera_id=emotion_data.camera_id,
                             timestamp=emotion_data.timestamp,
@@ -125,12 +132,26 @@ class CrowdSentimentProcessor:
                             confidence=confidence
                         )
                         
+                        # Buffer raw emotion for analytics
+                        # Need to match keys expected by DatabaseManager.batch_save_emotions
+                        self.raw_emotions_buffer.append({
+                            "frame_id": getattr(emotion_data, 'frame_id', 'unknown'),
+                            "face_id": emotion_entry.get("face_id", "unknown"),
+                            "emotion": emotion,
+                            "confidence": confidence,
+                            "camera_id": emotion_data.camera_id,
+                            "timestamp": emotion_data.timestamp,
+                            "bounding_box": emotion_entry.get("box", {}), # 'box' from emotion-detection/models.py
+                            "metadata": {}
+                        })
+                        
                         self.emotions_processed += 1
                 
-                logger.debug(
-                    f"Processed {len(emotion_data.faces)} faces from {emotion_data.camera_id}, "
-                    f"total emotions: {self.emotions_processed}"
-                )
+                if emotions_list:
+                    logger.debug(
+                        f"Processed {len(emotions_list)} emotions from {emotion_data.camera_id}, "
+                        f"total: {self.emotions_processed}"
+                    )
         
         except asyncio.CancelledError:
             logger.info("Emotion consumer cancelled")
@@ -189,6 +210,13 @@ class CrowdSentimentProcessor:
                 f"Published and saved {len(sentiments)} crowd sentiments. "
                 f"Total: published={self.sentiments_published}, saved={self.sentiments_saved}"
             )
+
+        # Save raw emotions (VANTA-30)
+        if self.raw_emotions_buffer:
+            logger.info(f"Saving {len(self.raw_emotions_buffer)} raw emotions to DB")
+            buffer_to_save = self.raw_emotions_buffer
+            self.raw_emotions_buffer = [] 
+            await self.db_manager.batch_save_emotions(buffer_to_save)
     
     async def trigger_aggregation(self):
         """Manually trigger sentiment aggregation (useful for testing)."""

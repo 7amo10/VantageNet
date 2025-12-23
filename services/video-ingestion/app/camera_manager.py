@@ -26,7 +26,13 @@ class CameraManager:
         Returns:
             VideoCapture instance
         """
-        camera_id = str(uuid.uuid4())
+        # Use provided camera_id or generate new one
+        camera_id = camera_data.camera_id or str(uuid.uuid4())
+        
+        # Check if camera already exists
+        if camera_id in self.cameras:
+            logger.warning(f"Camera {camera_id} already exists, returning existing instance")
+            return self.cameras[camera_id]
         
         camera = VideoCapture(
             camera_id=camera_id,

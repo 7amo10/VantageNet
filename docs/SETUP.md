@@ -9,6 +9,8 @@ This guide will help you set up VantageNet for local development.
 - [Detailed Setup](#detailed-setup)
 - [Environment Variables](#environment-variables)
 - [Running the System](#running-the-system)
+  - [Live Video Streaming](#live-video-streaming)
+  - [Data Flow: Emotion Detection to Analytics](#data-flow-emotion-detection-to-analytics)
 - [Troubleshooting](#troubleshooting)
 - [Verification](#verification)
 
@@ -166,24 +168,83 @@ Verify database initialization:
 docker exec vantage-postgres psql -U vantage -d vantage_db -c "\dt"
 ```
 
-You should see 5 tables:
-- cameras
-- emotions
-- rules
-- alerts
-- sentiment_stats
+You should see these core tables:
+
+| Table | Purpose |
+|-------|---------|
+| `cameras` | Registered camera sources |
+| `emotions` | Individual emotion detections (partitioned by timestamp) |
+| `sentiment_stats` | Aggregated crowd sentiment data |
+| `rules` | Alert rules configuration |
+| `alerts` | Generated alerts |
+
+#### Verify Emotion Data Pipeline
+
+After running the system with a camera active, verify data is being saved:
+
+```bash
+# Check emotions table count
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT count(*) FROM emotions;"
+
+# Check latest emotion detections
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT timestamp, emotion, confidence FROM emotions ORDER BY timestamp DESC LIMIT 5;"
+
+# Check sentiment aggregations
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT count(*) FROM sentiment_stats;"
+
+# Check sentiment distribution
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT dominant_emotion, avg(mood_score), count(*) FROM sentiment_stats GROUP BY dominant_emotion;"
+```
+
+**Note**: The `emotions` table is a partitioned table for performance. New partitions are automatically created based on timestamp.
 
 ### Step 6: Initialize Redis Streams
 
-Redis streams are automatically created on first use, but you can initialize them manually:
+Redis streams are automatically created when services start, but you can verify and manually initialize them:
+
+#### Verify Redis Streams
 
 ```bash
-# Option 1: Using the init script (requires redis-cli installed locally)
-REDIS_HOST=localhost REDIS_PORT=6380 ./scripts/init-redis-streams.sh
+# Check existing streams
+docker exec vantage-redis redis-cli KEYS "*"
 
-# Option 2: Using Docker exec
-docker exec vantage-redis sh -c 'redis-cli XADD emotion:events \* type init message "Stream initialized" timestamp $(date +%s) && redis-cli XGROUP CREATE emotion:events emotion-detector-group 0 MKSTREAM && redis-cli XGROUP CREATE emotion:events sentiment-analyzer-group 0 MKSTREAM && redis-cli XADD sentiment:crowd \* type init message "Stream initialized" timestamp $(date +%s) && redis-cli XGROUP CREATE sentiment:crowd api-gateway-group 0 MKSTREAM'
+# Check emotion result streams (created per camera)
+docker exec vantage-redis redis-cli KEYS "emotion:results:*"
+
+# Check sentiment analysis consumer groups
+docker exec vantage-redis redis-cli XINFO GROUPS emotion:events 2>/dev/null || echo "No emotion:events stream yet"
 ```
+
+#### Redis Stream Architecture
+
+VantageNet uses the following Redis streams for real-time data flow:
+
+| Stream Pattern | Producer | Consumer | Purpose |
+|---------------|----------|----------|---------|
+| `frames:{camera_id}` | Video Ingestion | Emotion Detection | Raw video frames |
+| `emotion:results:{camera_id}` | Emotion Detection | Sentiment Analysis | Per-camera emotion detections |
+| `emotion:events` | Emotion Detection | API Gateway | All emotion events |
+| `sentiment:crowd` | Sentiment Analysis | API Gateway | Aggregated crowd sentiments |
+
+#### Manual Stream Initialization (Optional)
+
+If you need to manually initialize streams and consumer groups:
+
+```bash
+# Create emotion events stream with consumer groups
+docker exec vantage-redis redis-cli XGROUP CREATE emotion:events emotion-detector-group 0 MKSTREAM 2>/dev/null
+docker exec vantage-redis redis-cli XGROUP CREATE emotion:events sentiment-analyzer-group 0 MKSTREAM 2>/dev/null
+docker exec vantage-redis redis-cli XGROUP CREATE emotion:events api-gateway-group 0 MKSTREAM 2>/dev/null
+
+# Create sentiment crowd stream with consumer groups  
+docker exec vantage-redis redis-cli XGROUP CREATE sentiment:crowd api-gateway-group 0 MKSTREAM 2>/dev/null
+
+# Initialize with a test message
+docker exec vantage-redis redis-cli XADD emotion:events '*' type init message "Stream initialized"
+docker exec vantage-redis redis-cli XADD sentiment:crowd '*' type init message "Stream initialized"
+```
+
+**Note**: The `emotion:results:{camera_id}` streams are automatically created when cameras start processing and don't require manual initialization.
 
 ### Step 7: Set Up Python Environment
 
@@ -357,6 +418,80 @@ After startup, you can access:
   - Connect with: `psql -h localhost -p 5434 -U vantage -d vantage_db`
 - **Redis**: localhost:6380
   - Connect with: `redis-cli -h localhost -p 6380`
+
+### Live Video Streaming
+
+The Video Ingestion service provides MJPEG streams with emotion detection overlays:
+
+```bash
+# Stream URL format (with emotion bounding boxes)
+http://localhost:8001/cameras/{camera_id}/stream?annotate=true
+
+# Stream without annotations
+http://localhost:8001/cameras/{camera_id}/stream?annotate=false
+
+# Get camera ID from API
+curl http://localhost:8000/api/cameras/
+```
+
+The dashboard's "Live Feed" section automatically displays streams from active cameras.
+
+### Data Flow: Emotion Detection to Analytics
+
+Understanding how data flows through the system:
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│ Video Ingestion │───▶│ Emotion Detection│───▶│ Sentiment Analysis  │
+│   (Port 8001)   │     │    (Port 8002)   │     │     (Port 8003)     │
+└─────────────────┘     └──────────────────┘     └─────────────────────┘
+        │                        │                         │
+        │ frames:{camera}        │ emotion:results:{cam}   │
+        ▼                        ▼                         ▼
+   ┌─────────┐              ┌─────────┐              ┌─────────┐
+   │  Redis  │              │emotions │              │sentiment│
+   │ Stream  │              │  table  │              │_stats   │
+   └─────────┘              └─────────┘              └─────────┘
+                                 │                         │
+                                 └──────────┬──────────────┘
+                                            ▼
+                                   ┌────────────────┐
+                                   │  Analytics API │
+                                   │  /api/analytics│
+                                   └────────────────┘
+                                            │
+                                            ▼
+                                   ┌────────────────┐
+                                   │   Dashboard    │
+                                   │  Analytics Tab │
+                                   └────────────────┘
+```
+
+**Key data persistence points:**
+1. **emotions table**: Individual emotion detections saved by Sentiment Analysis
+2. **sentiment_stats table**: Aggregated crowd sentiment (every 30 seconds)
+3. **alerts table**: Triggered rule alerts
+
+### Testing the Full Pipeline
+
+Verify the complete emotion detection pipeline is working:
+
+```bash
+# 1. Check Video Ingestion health
+curl http://localhost:8001/health
+
+# 2. Check Emotion Detection health
+curl http://localhost:8002/health
+
+# 3. Check Sentiment Analysis health and metrics
+curl http://localhost:8003/health | python3 -m json.tool
+
+# 4. Verify real-time emotion streaming via Redis
+docker exec vantage-redis redis-cli XLEN emotion:results:$(docker exec vantage-redis redis-cli KEYS 'emotion:results:*' | head -1 | cut -d: -f3)
+
+# 5. Check Analytics API returns data
+curl "http://localhost:8000/api/analytics/stats/emotions?start_date=2025-01-01&end_date=2030-01-01"
+```
 
 ### Stopping Services
 
@@ -657,10 +792,22 @@ docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT * FROM cam
 
 # 3. Check Redis streams are receiving data
 docker exec vantage-redis redis-cli XLEN emotion:events
-docker exec vantage-redis redis-cli XLEN sentiment:crowd
+docker exec vantage-redis redis-cli KEYS "emotion:results:*"
 
-# 4. View dashboard and verify camera appears
-# Open http://localhost:3001 and check the cameras list
+# 4. Verify emotion data is being saved
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT count(*) FROM emotions;"
+
+# 5. Check sentiment aggregation is working
+docker exec vantage-postgres psql -U vantage -d vantage_db -c "SELECT count(*) FROM sentiment_stats;"
+
+# 6. Test Analytics API endpoints
+curl "http://localhost:8000/api/analytics/stats/emotions?start_date=2025-01-01&end_date=2030-01-01"
+curl "http://localhost:8000/api/analytics/stats/sentiments?start_date=2025-01-01&end_date=2030-01-01"
+
+# 7. View dashboard and verify data appears
+# Open http://localhost:3001 and check:
+#   - Dashboard: Total Cameras, Active Cameras, Faces Detected
+#   - Analytics: Emotion Distribution pie chart, Sentiment Distribution chart
 ```
 
 ## Next Steps

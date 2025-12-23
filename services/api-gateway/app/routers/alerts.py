@@ -258,6 +258,14 @@ async def list_alerts(
             if alert.get('camera_id'):
                 alert['camera_id'] = str(alert['camera_id'])
             
+            # Parse metadata_json if it's a string
+            if alert.get('metadata_json') and isinstance(alert['metadata_json'], str):
+                import json
+                try:
+                    alert['metadata_json'] = json.loads(alert['metadata_json'])
+                except:
+                    alert['metadata_json'] = None
+            
             alerts.append(AlertResponse(**alert))
         
         # Apply search filter in-memory if provided
@@ -440,6 +448,14 @@ async def get_alert_detail(alert_id: str):
         if alert.get('camera_id'):
             alert['camera_id'] = str(alert['camera_id'])
         
+        # Parse metadata_json if it's a string
+        if alert.get('metadata_json') and isinstance(alert['metadata_json'], str):
+            import json
+            try:
+                alert['metadata_json'] = json.loads(alert['metadata_json'])
+            except:
+                alert['metadata_json'] = None
+        
         return AlertResponse(**alert)
         
     except ValueError as e:
@@ -531,6 +547,14 @@ async def update_alert(alert_id: str, update: AlertUpdate):
         alert['rule_id'] = str(alert['rule_id'])
         if alert.get('camera_id'):
             alert['camera_id'] = str(alert['camera_id'])
+        
+        # Parse metadata_json if it's a string
+        if alert.get('metadata_json') and isinstance(alert['metadata_json'], str):
+            import json
+            try:
+                alert['metadata_json'] = json.loads(alert['metadata_json'])
+            except:
+                alert['metadata_json'] = None
         
         logger.info(f"Updated alert {alert_id}: {update_fields}")
         

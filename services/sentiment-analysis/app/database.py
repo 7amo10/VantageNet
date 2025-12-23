@@ -52,26 +52,38 @@ class SentimentHistory(Base):
 
 
 class SentimentStats(Base):
-    """Sentiment statistics table (VANTA-18)."""
+    """Sentiment statistics table - matches actual database schema."""
     
     __tablename__ = "sentiment_stats"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Primary key is UUID in actual schema
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    camera_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     timestamp = Column(DateTime, nullable=False, index=True)
-    camera_id = Column(String(100), nullable=False, index=True)
-    total_faces_observed = Column(Integer, nullable=False)
-    emotion_distribution = Column(JSON, nullable=False)
+    # Required NOT NULL columns from actual schema
+    time_window_start = Column(DateTime, nullable=False)
+    time_window_end = Column(DateTime, nullable=False)
+    # Optional columns
+    total_faces = Column(Integer, default=0)
+    total_faces_observed = Column(Integer, default=0)
+    # Emotion averages
+    avg_happy = Column(Float)
+    avg_sad = Column(Float)
+    avg_angry = Column(Float)
+    avg_neutral = Column(Float)
+    avg_surprised = Column(Float)
+    avg_fear = Column(Float)
+    avg_disgust = Column(Float)
+    # Aggregated data
     dominant_emotion = Column(String(50))
-    mood_score = Column(Float, nullable=False)
+    sentiment_score = Column(Float)
+    average_confidence = Column(Float)
+    emotion_distribution = Column(JSON)
+    mood_score = Column(Float, default=0.0)
     trend = Column(String(20))
     trend_magnitude = Column(Float)
-    
-    class Config:
-        """SQLAlchemy config."""
-        
-        indexes = [
-            ("timestamp", "camera_id")
-        ]
+    metadata_json = Column("metadata", JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Alert(Base):
@@ -107,6 +119,26 @@ class AlertMetric(Base):
     alert_count = Column(Integer, default=0)
     severity_breakdown = Column(JSON, nullable=False)
     top_emotion = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EmotionRecord(Base):
+    """Raw emotion detection event (partitioned)."""
+    
+    __tablename__ = "emotions"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    frame_id = Column(String(100), nullable=False)
+    face_id = Column(String(100))
+    emotion = Column(String(50), nullable=False)
+    confidence = Column(Float, nullable=False)
+    camera_id = Column(UUID(as_uuid=True), nullable=False)
+    timestamp = Column(DateTime, nullable=False, primary_key=True)
+    bounding_box = Column(JSON)
+    meta_data = Column("metadata", JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -272,10 +304,19 @@ class DatabaseManager:
                 for emotion, stats in crowd_sentiment.emotion_distribution.items()
             }
             
+            # Convert camera_id string to UUID object
+            try:
+                cam_uuid = uuid.UUID(crowd_sentiment.camera_id)
+            except ValueError:
+                # Handle case where camera_id is not a valid UUID (e.g. "cam_1")
+                # For now, generate a deterministic UUID or just skip
+                logger.warning(f"Invalid UUID for camera_id: {crowd_sentiment.camera_id}")
+                return False
+
             async with self.get_session() as session:
                 stats = SentimentStats(
                     timestamp=crowd_sentiment.timestamp,
-                    camera_id=crowd_sentiment.camera_id,
+                    camera_id=cam_uuid,
                     total_faces_observed=crowd_sentiment.total_faces_observed,
                     emotion_distribution=emotion_dist_dict,
                     dominant_emotion=crowd_sentiment.dominant_emotion,
@@ -308,6 +349,13 @@ class DatabaseManager:
         try:
             async with self.get_session() as session:
                 for crowd_sentiment in sentiments:
+                    # Convert camera_id string to UUID object
+                    try:
+                        cam_uuid = uuid.UUID(crowd_sentiment.camera_id)
+                    except ValueError:
+                        logger.warning(f"Invalid UUID for camera_id: {crowd_sentiment.camera_id}")
+                        continue
+                    
                     # Convert emotion distribution
                     emotion_dist_dict = {
                         emotion: {
@@ -318,13 +366,38 @@ class DatabaseManager:
                         for emotion, stats in crowd_sentiment.emotion_distribution.items()
                     }
                     
+                    # Handle timezone-aware timestamps: convert to naive UTC for PostgreSQL
+                    ts = crowd_sentiment.timestamp
+                    if ts.tzinfo is not None:
+                        ts = ts.replace(tzinfo=None)  # Strip timezone, keep UTC value
+                    
+                    # Calculate time window (30 second window ending at timestamp)
+                    window_end = ts
+                    window_start = ts - timedelta(seconds=30)
+                    
+                    # Extract emotion percentages for individual columns
+                    emotion_pcts = {e: 0.0 for e in ['happy', 'sad', 'angry', 'neutral', 'surprised', 'fear', 'disgust']}
+                    for emotion, stats in crowd_sentiment.emotion_distribution.items():
+                        if emotion.lower() in emotion_pcts:
+                            emotion_pcts[emotion.lower()] = stats.percentage / 100.0  # Convert % to decimal
+                    
                     stats = SentimentStats(
-                        timestamp=crowd_sentiment.timestamp,
-                        camera_id=crowd_sentiment.camera_id,
+                        timestamp=ts,
+                        camera_id=cam_uuid,
+                        time_window_start=window_start,
+                        time_window_end=window_end,
+                        total_faces=crowd_sentiment.total_faces_observed,
                         total_faces_observed=crowd_sentiment.total_faces_observed,
-                        emotion_distribution=emotion_dist_dict,
+                        avg_happy=emotion_pcts.get('happy'),
+                        avg_sad=emotion_pcts.get('sad'),
+                        avg_angry=emotion_pcts.get('angry'),
+                        avg_neutral=emotion_pcts.get('neutral'),
+                        avg_surprised=emotion_pcts.get('surprised'),
+                        avg_fear=emotion_pcts.get('fear'),
+                        avg_disgust=emotion_pcts.get('disgust'),
                         dominant_emotion=crowd_sentiment.dominant_emotion,
                         mood_score=crowd_sentiment.mood_score,
+                        emotion_distribution=emotion_dist_dict,
                         trend=crowd_sentiment.trend,
                         trend_magnitude=crowd_sentiment.trend_magnitude
                     )
@@ -337,6 +410,52 @@ class DatabaseManager:
             logger.error(f"Error saving sentiment to database: {e}")
             return False
     
+    async def batch_save_emotions(self, emotions_data: List[dict]) -> bool:
+        """
+        Batch save raw emotion records.
+        
+        Args:
+            emotions_data: List of dicts matching EmotionRecord fields
+            
+        Returns:
+            bool: True if saved successfully
+        """
+        if not emotions_data:
+            return True
+            
+        try:
+            async with self.get_session() as session:
+                records = []
+                for e in emotions_data:
+                    # Parse UUID if string
+                    cam_id = e['camera_id']
+                    if isinstance(cam_id, str):
+                        try:
+                            cam_id = uuid.UUID(cam_id)
+                        except ValueError:
+                            continue # Skip invalid
+                            
+                    record = EmotionRecord(
+                        frame_id=str(e.get('frame_id', 'unknown')),
+                        face_id=str(e.get('face_id', 'unknown')),
+                        emotion=e['emotion'],
+                        confidence=float(e['confidence']),
+                        camera_id=cam_id,
+                        timestamp=e['timestamp'],
+                        bounding_box=e.get('bounding_box'),
+                        meta_data=e.get('metadata')
+                    )
+                    records.append(record)
+                
+                if records:
+                    session.add_all(records)
+            
+            logger.debug(f"Batch saved {len(records)} emotion records")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving emotions to database: {e}")
+            return False
+
     async def get_rules(self) -> list:
         """
         Get all enabled rules from database.

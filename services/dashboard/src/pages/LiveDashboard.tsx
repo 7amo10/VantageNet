@@ -75,16 +75,16 @@ export default function LiveEmotionDashboard() {
   // Handle sentiment update from WebSocket
   const handleSentimentUpdate = useCallback((data: any) => {
     console.log('[Dashboard] Sentiment update received:', data);
-    
+
     const newMoodScore = data.sentiment_score || data.moodScore || 0.5;
     const newTrend = calculateTrend(newMoodScore);
-    
+
     setMoodScore(newMoodScore);
     setDominantEmotion(data.dominant_emotion || data.emotion || 'neutral');
     setTrend(newTrend);
     setCrowdSize(data.face_count || data.faceCount || 0);
     setLastSentimentUpdate(new Date());
-    
+
     prevMoodScore.current = newMoodScore;
 
     // Add to mood trend data
@@ -110,7 +110,7 @@ export default function LiveEmotionDashboard() {
   // Handle emotion event from WebSocket
   const handleEmotionEvent = useCallback((data: any) => {
     console.log('[Dashboard] Emotion event received:', data);
-    
+
     setEmotionDistribution(prev => {
       const emotion = (data.emotion || 'neutral').toLowerCase();
       return {
@@ -124,7 +124,7 @@ export default function LiveEmotionDashboard() {
   // Handle alert from WebSocket
   const handleAlert = useCallback((data: any) => {
     console.log('[Dashboard] Alert received:', data);
-    
+
     const newAlert: AlertItem = {
       id: data.alert_id || data.id || `alert_${Date.now()}`,
       ruleId: data.rule_id || data.ruleId || 'unknown',
@@ -135,24 +135,50 @@ export default function LiveEmotionDashboard() {
       cameraId: data.camera_id || data.cameraId,
       resolved: false,
     };
-    
+
     setAlerts(prev => [newAlert, ...prev].slice(0, 50)); // Keep last 50 alerts
   }, []);
 
   // Initialize WebSocket connection
   useEffect(() => {
     console.log('[Dashboard] Initializing WebSocket connection');
-    
+
+    // Fetch initial alerts from API
+    const fetchInitialAlerts = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/api/alerts/?page=1&limit=10');
+        if (response.ok) {
+          const data = await response.json();
+          const initialAlerts: AlertItem[] = (data.alerts || []).map((alert: any) => ({
+            id: alert.id,
+            ruleId: alert.rule_id,
+            ruleName: alert.rule_name || 'Unknown Rule',
+            message: alert.message,
+            severity: alert.severity || 'info',
+            timestamp: new Date(alert.triggered_at),
+            cameraId: alert.camera_id,
+            resolved: !!alert.resolved_at,
+          }));
+          setAlerts(initialAlerts);
+          console.log('[Dashboard] Loaded', initialAlerts.length, 'initial alerts');
+        }
+      } catch (error) {
+        console.error('[Dashboard] Failed to fetch initial alerts:', error);
+      }
+    };
+
+    fetchInitialAlerts();
+
     // Register handlers
     const unsubscribeSentiment = websocket.onSentimentUpdate(handleSentimentUpdate);
     const unsubscribeEmotion = websocket.onEmotionEvent(handleEmotionEvent);
     const unsubscribeAlert = websocket.onAlert(handleAlert);
-    
+
     const unsubscribeConnect = websocket.onConnect(() => {
       console.log('[Dashboard] WebSocket connected');
       setIsConnected(true);
     });
-    
+
     const unsubscribeDisconnect = websocket.onDisconnect(() => {
       console.log('[Dashboard] WebSocket disconnected');
       setIsConnected(false);
@@ -163,7 +189,7 @@ export default function LiveEmotionDashboard() {
       setEmotionDistribution(prev => {
         const total = Object.values(prev).reduce((sum, val) => sum + val, 0);
         if (total === 0) return prev;
-        
+
         // Decay old emotions gradually
         const decayed: EmotionDistribution = {
           happy: Math.floor(prev.happy * 0.95),
@@ -241,14 +267,14 @@ export default function LiveEmotionDashboard() {
             lastUpdate={lastSentimentUpdate}
           />
         </div>
-        
+
         <div className="lg:col-span-5">
           <EmotionDistributionChart
             emotions={emotionDistribution}
             lastUpdate={lastEmotionUpdate}
           />
         </div>
-        
+
         <div className="lg:col-span-3">
           <CrowdSizeGauge
             currentCount={crowdSize}

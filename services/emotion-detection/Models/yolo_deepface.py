@@ -23,7 +23,7 @@ from deepface import DeepFace
 # ==========================================
 # Path to the YOLOv8-Face model weights
 # Ensure you have 'yolov8n-face.pt' downloaded
-YOLO_WEIGHTS = "services/emotion-detection/Models/yolov8n-face.pt" 
+YOLO_WEIGHTS = "./yolov8n-face.pt" 
 
 # Initialize YOLO
 try:

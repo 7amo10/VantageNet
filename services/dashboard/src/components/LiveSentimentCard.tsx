@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 
 interface LiveSentimentCardProps {
   emotion: string;
@@ -29,7 +29,7 @@ const emotionColors: Record<string, string> = {
   disgust: 'text-orange-600',
 };
 
-export default function LiveSentimentCard({ 
+function LiveSentimentCard({ 
   emotion, 
   moodScore, 
   trend,
@@ -44,7 +44,7 @@ export default function LiveSentimentCard({
     return () => clearTimeout(timer);
   }, [emotion, moodScore]);
 
-  const getTrendIcon = () => {
+  const getTrendIcon = useCallback(() => {
     switch (trend) {
       case 'up':
         return <span className="text-green-500 text-2xl">↑</span>;
@@ -53,9 +53,9 @@ export default function LiveSentimentCard({
       case 'stable':
         return <span className="text-gray-500 text-2xl">→</span>;
     }
-  };
+  }, [trend]);
 
-  const getTrendText = () => {
+  const getTrendText = useCallback(() => {
     switch (trend) {
       case 'up':
         return 'Improving';
@@ -64,19 +64,19 @@ export default function LiveSentimentCard({
       case 'stable':
         return 'Stable';
     }
-  };
+  }, [trend]);
 
-  const getMoodColor = () => {
+  const getMoodColor = useCallback(() => {
     if (moodScore >= 0.7) return 'text-green-600';
     if (moodScore >= 0.4) return 'text-yellow-600';
     return 'text-red-600';
-  };
+  }, [moodScore]);
 
-  const getMoodBackground = () => {
+  const getMoodBackground = useCallback(() => {
     if (moodScore >= 0.7) return 'bg-green-50 border-green-200';
     if (moodScore >= 0.4) return 'bg-yellow-50 border-yellow-200';
     return 'bg-red-50 border-red-200';
-  };
+  }, [moodScore]);
 
   return (
     <div 
@@ -152,3 +152,6 @@ export default function LiveSentimentCard({
     </div>
   );
 }
+
+// Memoize component to prevent unnecessary re-renders
+export default React.memo(LiveSentimentCard);

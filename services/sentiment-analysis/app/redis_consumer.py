@@ -139,13 +139,21 @@ class RedisConsumer:
                 # Read from all streams
                 streams_dict = {stream: ">" for stream in self._streams}
                 
-                messages = await self.redis_client.xreadgroup(
-                    groupname=self.consumer_group,
-                    consumername=self.consumer_name,
-                    streams=streams_dict,
-                    count=self.batch_size,
-                    block=self.block_ms
-                )
+                try:
+                    messages = await self.redis_client.xreadgroup(
+                        groupname=self.consumer_group,
+                        consumername=self.consumer_name,
+                        streams=streams_dict,
+                        count=self.batch_size,
+                        block=self.block_ms
+                    )
+                except ResponseError as e:
+                    if "NOGROUP" in str(e):
+                        # Consumer group was deleted (stream recreated), recreate it
+                        logger.warning("Consumer group missing, recreating...")
+                        await self._create_consumer_groups()
+                        continue
+                    raise
                 
                 if not messages:
                     continue
@@ -193,10 +201,12 @@ class RedisConsumer:
         try:
             # Parse JSON fields if they exist
             faces = json.loads(message_data.get("faces", "[]"))
+            emotions = json.loads(message_data.get("emotions", "[]"))
             emotion_counts = json.loads(message_data.get("emotion_counts", "{}"))
             
-            # Parse timestamp
-            timestamp_str = message_data.get("timestamp")
+            # Parse timestamp - prefer processed_at (when emotion was detected)
+            # over timestamp (original frame time from video)
+            timestamp_str = message_data.get("processed_at") or message_data.get("timestamp")
             if timestamp_str:
                 timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             else:
@@ -207,6 +217,7 @@ class RedisConsumer:
                 timestamp=timestamp,
                 frame_number=int(message_data.get("frame_number", 0)),
                 faces=faces,
+                emotions=emotions,
                 emotion_counts=emotion_counts,
                 dominant_emotion=message_data.get("dominant_emotion")
             )
