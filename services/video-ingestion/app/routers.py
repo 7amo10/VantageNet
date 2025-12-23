@@ -2,8 +2,10 @@
 API routes for camera management
 """
 import logging
+import asyncio
 from typing import List
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from app.models import (
     CameraCreate,
     CameraResponse,
@@ -109,3 +111,71 @@ async def delete_camera(camera_id: str):
             detail=f"Camera {camera_id} not found"
         )
     return None
+
+
+@router.get(
+    "/{camera_id}/stream",
+    summary="Stream camera video (MJPEG)",
+    response_class=StreamingResponse
+)
+async def stream_camera(camera_id: str, annotate: bool = True):
+    """
+    Stream video from a camera using MJPEG format.
+    
+    This endpoint provides a continuous MJPEG stream that can be
+    displayed in browsers or consumed by video players.
+    
+    Args:
+        annotate: If True, draw emotion detection boxes on the video (default: True)
+    """
+    from app.annotation_overlay import annotation_overlay
+    
+    camera = camera_manager.get_camera(camera_id)
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {camera_id} not found"
+        )
+    
+    async def generate_frames():
+        """Generator function that yields MJPEG frames with annotations"""
+        try:
+            while True:
+                # Get current frame from camera
+                frame_data = camera.get_latest_frame()
+                
+                if frame_data:
+                    # Apply annotations if enabled
+                    if annotate and annotation_overlay.connected:
+                        frame_data = annotation_overlay.draw_annotations(frame_data, camera_id)
+                    
+                    # Yield frame in MJPEG format
+                    yield (
+                        b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + frame_data + b'\r\n'
+                    )
+                else:
+                    # Camera not active or no frame available yet
+                    await asyncio.sleep(0.1)
+                    continue
+                
+                # Control frame rate (10 FPS)
+                await asyncio.sleep(0.1)
+                
+        except asyncio.CancelledError:
+            logger.info(f"Stream cancelled for camera {camera_id}")
+        except Exception as e:
+            logger.error(f"Error streaming camera {camera_id}: {e}")
+    
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    )

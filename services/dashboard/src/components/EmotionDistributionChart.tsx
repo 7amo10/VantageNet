@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, Legend, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface EmotionData {
@@ -23,21 +24,28 @@ const EMOTION_COLORS: Record<string, string> = {
   disgust: '#f97316',    // orange-500
 };
 
-export default function EmotionDistributionChart({ 
+function EmotionDistributionChart({ 
   emotions, 
   lastUpdate 
 }: EmotionDistributionChartProps) {
-  // Convert emotions object to chart data
-  const total = Object.values(emotions).reduce((sum, val) => sum + val, 0);
+  // Convert emotions object to chart data - memoized to prevent recalculation
+  const chartData: EmotionData[] = useMemo(() => {
+    const total = Object.values(emotions).reduce((sum, val) => sum + val, 0);
+    
+    return Object.entries(emotions)
+      .filter(([_, value]) => value > 0)
+      .map(([name, value]) => ({
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        value,
+        percentage: total > 0 ? (value / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [emotions]);
   
-  const chartData: EmotionData[] = Object.entries(emotions)
-    .filter(([_, value]) => value > 0)
-    .map(([name, value]) => ({
-      name: name.charAt(0).toUpperCase() + name.slice(1),
-      value,
-      percentage: total > 0 ? (value / total) * 100 : 0,
-    }))
-    .sort((a, b) => b.value - a.value);
+  const total = useMemo(() => 
+    Object.values(emotions).reduce((sum, val) => sum + val, 0), 
+    [emotions]
+  );
 
   const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percentage }: any) => {
     if (percentage < 5) return null; // Don't show labels for small slices
@@ -168,3 +176,12 @@ export default function EmotionDistributionChart({
     </div>
   );
 }
+
+// Memoize component to prevent unnecessary re-renders
+export default React.memo(EmotionDistributionChart, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if emotions or lastUpdate changed
+  return (
+    JSON.stringify(prevProps.emotions) === JSON.stringify(nextProps.emotions) &&
+    prevProps.lastUpdate?.getTime() === nextProps.lastUpdate?.getTime()
+  );
+});

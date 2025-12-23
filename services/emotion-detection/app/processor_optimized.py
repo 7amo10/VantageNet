@@ -454,46 +454,45 @@ class OptimizedFrameProcessor:
                         face_id=face_id
                     ))
                     
-                    # FER emotion classification
-                    if fer_model:
+                    # FER emotion classification using DeepFace (same as yolo_deepface.py)
+                    if fer_model == "deepface":
                         try:
-                            # Optimized BGR→RGB conversion (single operation)
-                            face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+                            from deepface import DeepFace
                             
-                            # Convert to PIL Image and apply transforms
-                            pil_img = Image.fromarray(face_rgb)
-                            input_tensor = self.transform(pil_img).unsqueeze(0)
+                            # DeepFace works with BGR directly
+                            result = DeepFace.analyze(
+                                img_path=face_img,
+                                actions=['emotion'],
+                                detector_backend='skip',  # Skip detection, we already have face crop
+                                enforce_detection=False,
+                                silent=True
+                            )
                             
-                            # Move to device and run inference
-                            input_tensor = input_tensor.to(device)
+                            # Handle return type
+                            if isinstance(result, list):
+                                result = result[0]
                             
-                            with torch.no_grad():
-                                outputs = fer_model(input_tensor)
-                                probs = torch.nn.functional.softmax(outputs, dim=1)
-                                top_prob, top_idx = torch.max(probs, 1)
-                                
-                                top_prob = top_prob.item()
-                                top_idx = top_idx.item()
-                                predicted_emotion = EMOTION_LABELS[top_idx]
+                            emotion_probs = result.get('emotion', {})
+                            dominant_emotion = result.get('dominant_emotion', 'neutral')
+                            dominant_confidence = emotion_probs.get(dominant_emotion, 0.5) / 100.0
                             
                             # Filter by threshold
-                            if top_prob > settings.emotion_threshold:
+                            if dominant_confidence > settings.emotion_threshold:
                                 all_probs = {
-                                    EMOTION_LABELS[i]: float(probs[0][i].item()) 
-                                    for i in range(len(EMOTION_LABELS))
+                                    k: v / 100.0 for k, v in emotion_probs.items()
                                 }
                                 
                                 emotions_list.append(EmotionPrediction(
                                     face_id=face_id,
-                                    emotion=predicted_emotion,
-                                    confidence=top_prob,
+                                    emotion=dominant_emotion,
+                                    confidence=dominant_confidence,
                                     all_emotions=all_probs
                                 ))
                                 
                         except Exception as e:
                             logger.error(json.dumps({
                                 "level": "ERROR",
-                                "message": "FER inference error",
+                                "message": "DeepFace inference error",
                                 "error": str(e),
                                 "face_id": face_id,
                                 "timestamp": datetime.now().isoformat()
@@ -529,6 +528,7 @@ class OptimizedFrameProcessor:
             
             # 5. Publish results to Redis
             redis_start = time.time()
+            h, w = frame.shape[:2]  # Get actual frame dimensions
             result = EmotionResult(
                 camera_id=frame_data.camera_id,
                 frame_number=frame_data.frame_number,
@@ -537,7 +537,9 @@ class OptimizedFrameProcessor:
                 faces_detected=len(faces_list),
                 faces=faces_list,
                 emotions=emotions_list,
-                processing_time_ms=processing_time
+                processing_time_ms=processing_time,
+                frame_width=w,
+                frame_height=h
             )
             
             published = await redis_publisher.publish_result(result)

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     
     # Processing Configuration
     process_every_n_frames: int = Field(
-        default=5,  # Increased from 3 for memory optimization
+        default=2,  # Process every 2nd frame for responsive tracking
         description="Process every Nth frame for efficiency"
     )
     max_memory_mb: int = Field(

@@ -97,6 +97,12 @@ class RedisPublisher:
                 "emotions": json.dumps(result_dict["emotions"]),
             }
             
+            # Add frame dimensions if present
+            if result.frame_width is not None:
+                data["frame_width"] = str(result.frame_width)
+            if result.frame_height is not None:
+                data["frame_height"] = str(result.frame_height)
+            
             # Add metadata if present
             if result.metadata:
                 data["metadata"] = json.dumps(result.metadata)

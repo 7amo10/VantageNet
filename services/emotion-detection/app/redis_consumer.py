@@ -184,7 +184,14 @@ class RedisConsumer:
                 logger.info("Frame reading cancelled")
                 break
             except Exception as e:
-                logger.error(f"Error reading from Redis: {e}")
+                error_str = str(e)
+                # Handle NOGROUP errors by recreating consumer groups
+                if 'NOGROUP' in error_str:
+                    logger.warning(f"Consumer group missing, recreating...")
+                    await self._discover_streams()
+                    await self._create_consumer_groups()
+                else:
+                    logger.error(f"Error reading from Redis: {e}")
                 await asyncio.sleep(1)
     
     def _parse_frame_data(self, data: Dict[bytes, bytes]) -> FrameData:

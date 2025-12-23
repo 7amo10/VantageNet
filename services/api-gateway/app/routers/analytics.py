@@ -279,8 +279,8 @@ async def get_sentiment_stats(
         query = f"""
             SELECT 
                 CASE 
-                    WHEN sentiment_score > 0.2 THEN 'positive'
-                    WHEN sentiment_score < -0.2 THEN 'negative'
+                    WHEN mood_score > 0.2 THEN 'positive'
+                    WHEN mood_score < -0.2 THEN 'negative'
                     ELSE 'neutral'
                 END as sentiment,
                 COUNT(*) as count

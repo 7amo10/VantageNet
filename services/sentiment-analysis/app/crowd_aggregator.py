@@ -1,7 +1,7 @@
 """Crowd-level emotion aggregation for VANTA-18."""
 import logging
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Literal
 
 from .models import CrowdSentiment, EmotionStats
@@ -50,17 +50,41 @@ class CrowdEmotionAggregator:
         
     def _cleanup_old_data(self) -> None:
         """Remove emotions older than 2x window size."""
-        cutoff_time = datetime.now() - timedelta(seconds=self.window_seconds * 2)
+        # Use UTC for consistent timezone handling
+        cutoff_time = datetime.now(timezone.utc) - timedelta(seconds=self.window_seconds * 2)
         
         original_size = len(self.emotion_buffer)
         self.emotion_buffer = [
             e for e in self.emotion_buffer
-            if e[0] > cutoff_time
+            if self._compare_timestamps(e[0], cutoff_time)
         ]
         
         removed = original_size - len(self.emotion_buffer)
         if removed > 0:
             logger.debug(f"Cleaned up {removed} old emotion records")
+    
+    def _normalize_timestamp(self, ts: datetime) -> datetime:
+        """Convert timestamp to UTC, handling both naive and aware datetimes."""
+        if ts.tzinfo is None:
+            # Naive timestamps are assumed to be LOCAL time (from datetime.now())
+            # Get local timezone and convert to UTC
+            local_tz = datetime.now().astimezone().tzinfo
+            ts_local = ts.replace(tzinfo=local_tz)
+            return ts_local.astimezone(timezone.utc)
+        return ts.astimezone(timezone.utc)
+    
+    def _compare_timestamps(self, ts: datetime, cutoff: datetime) -> bool:
+        """Compare timestamp > cutoff, handling timezone differences."""
+        ts_utc = self._normalize_timestamp(ts)
+        cutoff_utc = self._normalize_timestamp(cutoff)
+        return ts_utc > cutoff_utc
+    
+    def _in_window(self, ts: datetime, window_start: datetime, window_end: datetime) -> bool:
+        """Check if timestamp is within window, handling timezone differences."""
+        ts_utc = self._normalize_timestamp(ts)
+        start_utc = self._normalize_timestamp(window_start)
+        end_utc = self._normalize_timestamp(window_end)
+        return start_utc <= ts_utc <= end_utc
     
     def aggregate_camera(
         self,
@@ -78,14 +102,14 @@ class CrowdEmotionAggregator:
             CrowdSentiment if sufficient data, None otherwise
         """
         if current_time is None:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
         
         # Get emotions in the sliding window
         window_start = current_time - timedelta(seconds=self.window_seconds)
         window_emotions = [
             (ts, cam, emotion, conf)
             for ts, cam, emotion, conf in self.emotion_buffer
-            if cam == camera_id and ts >= window_start and ts <= current_time
+            if cam == camera_id and self._in_window(ts, window_start, current_time)
         ]
         
         # Need at least one emotion
@@ -197,13 +221,13 @@ class CrowdEmotionAggregator:
             List of CrowdSentiment for each camera
         """
         if current_time is None:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
         
         # Get unique camera IDs in the window
         window_start = current_time - timedelta(seconds=self.window_seconds)
         active_cameras = set(
             cam for ts, cam, _, _ in self.emotion_buffer
-            if ts >= window_start
+            if self._compare_timestamps(ts, window_start)
         )
         
         # Aggregate each camera

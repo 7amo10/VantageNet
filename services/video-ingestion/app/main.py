@@ -17,6 +17,7 @@ from app.models import HealthResponse
 from app.redis_client import redis_client
 from app.camera_manager import camera_manager
 from app.routers import router as camera_router
+from app.annotation_overlay import annotation_overlay
 
 # Configure structured logging
 logging.basicConfig(
@@ -43,10 +44,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to connect to Redis: {e}")
         # Continue without Redis for now
     
+    # Start annotation overlay for server-side rendering
+    try:
+        await annotation_overlay.connect()
+        await annotation_overlay.start()
+        logger.info("Annotation overlay started")
+    except Exception as e:
+        logger.error(f"Failed to start annotation overlay: {e}")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down service...")
+    await annotation_overlay.stop()
     await camera_manager.stop_all()
     await redis_client.disconnect()
     logger.info("Service shutdown complete")

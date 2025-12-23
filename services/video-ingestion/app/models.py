@@ -24,6 +24,7 @@ class CameraStatus(str, Enum):
 
 class CameraCreate(BaseModel):
     """Request model for creating/registering a camera"""
+    camera_id: Optional[str] = Field(default=None, description="Optional camera ID (if not provided, will generate UUID)")
     name: str = Field(..., description="Camera name")
     source_type: CameraSourceType = Field(..., description="Type of camera source")
     source_url: str = Field(..., description="RTSP URL, webcam index, or file path")
