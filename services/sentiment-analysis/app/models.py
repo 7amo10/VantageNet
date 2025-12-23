@@ -80,7 +80,11 @@ class EmotionData(BaseModel):
     frame_number: int = Field(..., description="Frame number")
     faces: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="List of detected faces with emotions"
+        description="List of detected faces with bounding boxes"
+    )
+    emotions: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of emotion predictions per face"
     )
     emotion_counts: Dict[str, int] = Field(
         default_factory=dict,

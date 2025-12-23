@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import LiveSentimentCard from '@/components/LiveSentimentCard';
 import EmotionDistributionChart from '@/components/EmotionDistributionChart';
 import CrowdSizeGauge from '@/components/CrowdSizeGauge';
@@ -29,7 +29,7 @@ interface CrowdHistory {
   count: number;
 }
 
-export default function LiveEmotionDashboard() {
+function LiveEmotionDashboard() {
   // Live Sentiment State
   const [dominantEmotion, setDominantEmotion] = useState<string>('neutral');
   const [moodScore, setMoodScore] = useState<number>(0.5);
@@ -64,6 +64,12 @@ export default function LiveEmotionDashboard() {
   // Refs for previous values (for trend calculation)
   const prevMoodScore = useRef<number>(0.5);
   const emotionUpdateInterval = useRef<NodeJS.Timeout | null>(null);
+  
+  // Debounce refs for WebSocket updates (1 update per second)
+  const sentimentBuffer = useRef<any>(null);
+  const sentimentDebounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const emotionBuffer = useRef<any[]>([]);
+  const emotionDebounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Calculate trend based on previous mood score
   const calculateTrend = useCallback((newScore: number): 'up' | 'down' | 'stable' => {
@@ -72,53 +78,89 @@ export default function LiveEmotionDashboard() {
     return diff > 0 ? 'up' : 'down';
   }, []);
 
-  // Handle sentiment update from WebSocket
+  // Handle sentiment update from WebSocket with debouncing (max 1/second)
   const handleSentimentUpdate = useCallback((data: any) => {
     console.log('[Dashboard] Sentiment update received:', data);
     
-    const newMoodScore = data.sentiment_score || data.moodScore || 0.5;
-    const newTrend = calculateTrend(newMoodScore);
+    // Store latest data in buffer
+    sentimentBuffer.current = data;
     
-    setMoodScore(newMoodScore);
-    setDominantEmotion(data.dominant_emotion || data.emotion || 'neutral');
-    setTrend(newTrend);
-    setCrowdSize(data.face_count || data.faceCount || 0);
-    setLastSentimentUpdate(new Date());
+    // Clear existing timer
+    if (sentimentDebounceTimer.current) {
+      clearTimeout(sentimentDebounceTimer.current);
+    }
     
-    prevMoodScore.current = newMoodScore;
+    // Debounce updates to 1 per second
+    sentimentDebounceTimer.current = setTimeout(() => {
+      const bufferedData = sentimentBuffer.current;
+      if (!bufferedData) return;
+      
+      const newMoodScore = bufferedData.sentiment_score || bufferedData.moodScore || 0.5;
+      const newTrend = calculateTrend(newMoodScore);
+      
+      setMoodScore(newMoodScore);
+      setDominantEmotion(bufferedData.dominant_emotion || bufferedData.emotion || 'neutral');
+      setTrend(newTrend);
+      setCrowdSize(bufferedData.face_count || bufferedData.faceCount || 0);
+      setLastSentimentUpdate(new Date());
+      
+      prevMoodScore.current = newMoodScore;
 
-    // Add to mood trend data
-    setMoodTrendData(prev => {
-      const newPoint: MoodDataPoint = {
-        timestamp: Date.now(),
-        moodScore: newMoodScore,
-        emotion: data.dominant_emotion || data.emotion,
-      };
-      return [...prev, newPoint].slice(-180); // Keep last 30 minutes (assuming 10s intervals)
-    });
+      // Add to mood trend data
+      setMoodTrendData(prev => {
+        const newPoint: MoodDataPoint = {
+          timestamp: Date.now(),
+          moodScore: newMoodScore,
+          emotion: bufferedData.dominant_emotion || bufferedData.emotion,
+        };
+        return [...prev, newPoint].slice(-180); // Keep last 30 minutes (assuming 10s intervals)
+      });
 
-    // Add to crowd history
-    setCrowdHistory(prev => {
-      const newPoint: CrowdHistory = {
-        timestamp: Date.now(),
-        count: data.face_count || data.faceCount || 0,
-      };
-      return [...prev, newPoint].slice(-30); // Keep last 5 minutes
-    });
+      // Add to crowd history
+      setCrowdHistory(prev => {
+        const newPoint: CrowdHistory = {
+          timestamp: Date.now(),
+          count: bufferedData.face_count || bufferedData.faceCount || 0,
+        };
+        return [...prev, newPoint].slice(-30); // Keep last 5 minutes
+      });
+      
+      // Clear buffer
+      sentimentBuffer.current = null;
+    }, 1000); // Debounce to 1 second
   }, [calculateTrend]);
 
-  // Handle emotion event from WebSocket
+  // Handle emotion event from WebSocket with debouncing (batch updates)
   const handleEmotionEvent = useCallback((data: any) => {
     console.log('[Dashboard] Emotion event received:', data);
     
-    setEmotionDistribution(prev => {
-      const emotion = (data.emotion || 'neutral').toLowerCase();
-      return {
-        ...prev,
-        [emotion]: (prev[emotion as keyof EmotionDistribution] || 0) + 1,
-      };
-    });
-    setLastEmotionUpdate(new Date());
+    // Add to buffer
+    emotionBuffer.current.push(data);
+    
+    // Clear existing timer
+    if (emotionDebounceTimer.current) {
+      clearTimeout(emotionDebounceTimer.current);
+    }
+    
+    // Batch process emotions every 1 second
+    emotionDebounceTimer.current = setTimeout(() => {
+      const events = emotionBuffer.current;
+      if (events.length === 0) return;
+      
+      setEmotionDistribution(prev => {
+        const updated = { ...prev };
+        events.forEach(event => {
+          const emotion = (event.emotion || 'neutral').toLowerCase();
+          updated[emotion as keyof EmotionDistribution] = (updated[emotion as keyof EmotionDistribution] || 0) + 1;
+        });
+        return updated;
+      });
+      
+      setLastEmotionUpdate(new Date());
+      
+      // Clear buffer
+      emotionBuffer.current = [];
+    }, 1000); // Batch every 1 second
   }, []);
 
   // Handle alert from WebSocket
@@ -187,6 +229,13 @@ export default function LiveEmotionDashboard() {
       unsubscribeDisconnect();
       if (emotionUpdateInterval.current) {
         clearInterval(emotionUpdateInterval.current);
+      }
+      // Clean up debounce timers
+      if (sentimentDebounceTimer.current) {
+        clearTimeout(sentimentDebounceTimer.current);
+      }
+      if (emotionDebounceTimer.current) {
+        clearTimeout(emotionDebounceTimer.current);
       }
     };
   }, [handleSentimentUpdate, handleEmotionEvent, handleAlert]);
@@ -280,9 +329,12 @@ export default function LiveEmotionDashboard() {
       <div className="mt-8 text-center text-sm text-gray-500">
         <p>Dashboard updates automatically via WebSocket connection</p>
         <p className="mt-1">
-          Sentiment: Every 1s | Emotions: Every 2s | Performance optimized for 60 FPS
+          WebSocket updates debounced to 1/second for optimal performance
         </p>
       </div>
     </div>
   );
 }
+
+// Memoize to prevent unnecessary re-renders
+export default React.memo(LiveEmotionDashboard);

@@ -103,57 +103,37 @@ class ModelLoader:
             return False
     
     async def _load_fer(self) -> bool:
-        """Load FER (Facial Expression Recognition) model."""
-
+        """Load FER (Facial Expression Recognition) model using DeepFace."""
         try:
-            logger.info(f"Loading EfficientNet from {settings.fer_model_path}")
+            logger.info("Loading DeepFace emotion model...")
             
-            # 1. تهيئة الموديل
-            model = EmotionEfficientNet(num_classes=settings.num_classes)
+            # Import DeepFace
+            from deepface import DeepFace
             
-            # 2. تحميل الأوزان
-            # map_location مهم جداً لضمان التحميل على CPU إذا لم يوجد GPU
-            state_dict = torch.load(settings.fer_model_path, map_location=self.device)
-            model.load_state_dict(state_dict)
+            # Pre-load model by running a dummy prediction
+            # This forces DeepFace to download and cache the model
+            import numpy as np
+            dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
             
-            # 3. النقل للـ Device ووضع Evaluation Mode
-            model.to(self.device)
-            model.eval() # مهم جداً لإيقاف الـ Dropout وتثبيت الـ BatchNorm
+            try:
+                # This will download the model if not cached
+                _ = DeepFace.analyze(
+                    img_path=dummy_img,
+                    actions=['emotion'],
+                    detector_backend='skip',  # Skip detection since YOLO handles it
+                    enforce_detection=False,
+                    silent=True
+                )
+            except:
+                # Expected to fail on dummy image, but model should now be cached
+                pass
             
-            self.fer_model = model
-            logger.info("✓ Custom EfficientNet loaded successfully")
+            self.fer_model = "deepface"  # DeepFace doesn't return model object, use marker
+            logger.info("✓ DeepFace emotion model loaded successfully")
             return True
-        
-        # try:
-        #     logger.info(f"Loading FER model: {settings.fer_model_name}")
-            
-        #     # Import DeepFace
-        #     from deepface import DeepFace
-            
-        #     # Pre-load model by running a dummy prediction
-        #     # This forces DeepFace to download and cache the model
-        #     import numpy as np
-        #     dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
-            
-        #     try:
-        #         # This will download the model if not cached
-        #         _ = DeepFace.analyze(
-        #             img_path=dummy_img,
-        #             actions=['emotion'],
-        #             detector_backend=settings.fer_backend,
-        #             enforce_detection=False,
-        #             silent=True
-        #         )
-        #     except:
-        #         # Expected to fail on dummy image, but model should now be cached
-        #         pass
-            
-        #     self.fer_model = "loaded"  # DeepFace doesn't return model object
-        #     logger.info("✓ FER model loaded successfully")
-        #     return True
             
         except Exception as e:
-            error_msg = f"Failed to load FER model: {e}"
+            error_msg = f"Failed to load DeepFace model: {e}"
             logger.error(error_msg)
             self.load_errors["fer"] = str(e)
             return False
@@ -179,8 +159,8 @@ class ModelLoader:
 
         mem = self.get_memory_usage()
         return [
-            ModelStatus(name="YOLOv8", loaded=self.yolo_model is not None, memory_mb=mem/2),
-            ModelStatus(name="EfficientNet", loaded=self.fer_model is not None, memory_mb=mem/2)
+            ModelStatus(name="YOLOv8-face", loaded=self.yolo_model is not None, memory_mb=mem/2),
+            ModelStatus(name="DeepFace-emotion", loaded=self.fer_model is not None, memory_mb=mem/2)
         ]
     
 

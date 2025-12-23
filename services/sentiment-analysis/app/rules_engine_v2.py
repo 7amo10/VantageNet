@@ -26,6 +26,8 @@ class RuleRegistry:
         self.register("threshold", ThresholdRule)
         self.register("trend", TrendRule)
         self.register("duration", DurationRule)
+        # Alias for legacy rule types
+        self.register("sentiment", ThresholdRule)
     
     def register(self, rule_type: str, rule_class: Type[Rule]) -> None:
         """
@@ -133,7 +135,7 @@ class RulesEngineV2:
         Parse database rule into Rule object.
         
         Args:
-            db_rule: Database rule record with condition_json field
+            db_rule: Database rule record with type column and condition_json field
             
         Returns:
             Rule instance or None if parsing fails
@@ -146,10 +148,10 @@ class RulesEngineV2:
                 logger.error(f"Invalid config format for rule {db_rule.name}: expected dict")
                 return None
             
-            # Extract rule type from config
-            rule_type = config.get("type")
+            # Get rule type from the type COLUMN (not from config)
+            rule_type = db_rule.type if hasattr(db_rule, 'type') else config.get("type")
             if not rule_type:
-                logger.warning(f"No type specified in rule config for {db_rule.name}")
+                logger.warning(f"No type specified for rule {db_rule.name}")
                 return None
             
             # Get rule class from registry
@@ -158,7 +160,7 @@ class RulesEngineV2:
                 logger.warning(f"Unknown rule type '{rule_type}' for rule {db_rule.name}")
                 return None
             
-            # Extract rule parameters (remove 'type' and 'severity' as they're metadata)
+            # Extract rule parameters from config
             rule_params = {k: v for k, v in config.items() if k not in ['type', 'severity']}
             
             # Instantiate rule with database ID and name
@@ -355,7 +357,17 @@ class RulesEngineV2:
             
             for alert in alerts:
                 # Convert alert to dict
-                alert_data = alert.to_dict()
+                alert_dict = alert.to_dict()
+                
+                # Convert all values to strings for Redis (nested dicts to JSON)
+                alert_data = {}
+                for key, value in alert_dict.items():
+                    if value is None:
+                        alert_data[key] = ""
+                    elif isinstance(value, dict):
+                        alert_data[key] = json.dumps(value)
+                    else:
+                        alert_data[key] = str(value)
                 
                 # Publish to alerts:events stream
                 await redis_client.xadd(
@@ -363,7 +375,7 @@ class RulesEngineV2:
                     alert_data
                 )
                 
-                logger.debug(f"Published alert to Redis stream: {alert.rule_name}")
+                logger.info(f"Published alert to Redis stream: {alert.rule_name}")
         
         except Exception as e:
             logger.error(f"Failed to publish alerts to Redis: {e}")
@@ -390,7 +402,8 @@ class RulesEngineV2:
     async def _get_redis_client(self):
         """Get or create Redis client connection."""
         if not self._redis_client:
-            self._redis_client = await aioredis.create_redis_pool(
+            import redis.asyncio as aioredis
+            self._redis_client = await aioredis.from_url(
                 f"redis://{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
             )
         return self._redis_client

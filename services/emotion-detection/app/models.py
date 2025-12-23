@@ -41,6 +41,8 @@ class EmotionResult(BaseModel):
     faces: List[FaceDetection]
     emotions: List[EmotionPrediction]
     processing_time_ms: float
+    frame_width: Optional[int] = None  # Width of processed frame
+    frame_height: Optional[int] = None  # Height of processed frame
     metadata: Optional[Dict[str, Any]] = None
 
 

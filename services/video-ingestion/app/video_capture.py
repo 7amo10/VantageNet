@@ -43,6 +43,10 @@ class VideoCapture:
         self.last_frame_time: Optional[datetime] = None
         self.created_at = datetime.now()
         
+        # Store latest frame for streaming
+        self._latest_frame: Optional[bytes] = None
+        self._frame_lock = asyncio.Lock()
+        
         self._task: Optional[asyncio.Task] = None
         self._stop_event = asyncio.Event()
         self._reconnect_attempts = 0
@@ -208,6 +212,10 @@ class VideoCapture:
                     await asyncio.sleep(frame_interval)
                     continue
                 
+                # Store latest frame for streaming
+                async with self._frame_lock:
+                    self._latest_frame = compressed_frame
+                
                 # Publish to Redis
                 self.frame_count += 1
                 self.last_frame_time = datetime.now()
@@ -241,6 +249,15 @@ class VideoCapture:
         # Cleanup
         self._release_capture()
         self.status = CameraStatus.INACTIVE if not self.enabled else CameraStatus.ERROR
+    
+    def get_latest_frame(self) -> Optional[bytes]:
+        """
+        Get the most recent frame captured from this camera.
+        
+        Returns:
+            JPEG-encoded frame bytes, or None if no frame available
+        """
+        return self._latest_frame
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API response"""
